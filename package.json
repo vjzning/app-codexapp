@@ -1,0 +1,21 @@
+{
+  "name": "codex-mobile-remote",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@9.15.2",
+  "scripts": {
+    "mobile": "pnpm --filter mobile start",
+    "mobile:ios": "pnpm --filter mobile ios",
+    "mobile:android": "pnpm --filter mobile android",
+    "mobile:web": "pnpm --filter mobile web",
+    "probe:app-server": "node scripts/probe-app-server.mjs",
+    "relay:app-server": "node scripts/app-server-relay.mjs",
+    "relay:cloudflare": "RELAY_LISTEN_HOST=127.0.0.1 RELAY_LISTEN_PORT=4501 node scripts/app-server-relay.mjs",
+    "start:cloudflare": "node scripts/start-cloudflare-stack.mjs",
+    "typecheck": "pnpm --filter mobile typecheck",
+    "protocol:generate": "codex app-server generate-ts --out packages/protocol/src --experimental"
+  },
+  "devDependencies": {
+    "qrcode-terminal": "^0.12.0"
+  }
+}

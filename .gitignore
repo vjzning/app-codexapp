@@ -1,0 +1,24 @@
+# 依赖目录不要进入仓库，安装时用 pnpm 还原。
+node_modules/
+apps/*/node_modules/
+
+# Expo / Metro 本地缓存。
+.expo/
+apps/*/.expo/
+dist/
+web-build/
+
+# 本地环境和系统文件。
+.env
+.env.*
+!.env.example
+.DS_Store
+
+# TypeScript / 测试 / 构建产物。
+*.tsbuildinfo
+coverage/
+build/
+
+# Expo 生成的原生工程目录。
+apps/*/ios/
+apps/*/android/

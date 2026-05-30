@@ -1,0 +1,18 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": true,
+    "ignoreDeprecations": "6.0",
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"],
+      "@codex-mobile/protocol": ["../../packages/protocol/src/index.ts"],
+      "@codex-mobile/protocol/v2": ["../../packages/protocol/src/v2/index.ts"]
+    }
+  },
+  "include": [
+    "**/*.ts",
+    "**/*.tsx",
+    "../../packages/protocol/src/**/*.ts"
+  ]
+}

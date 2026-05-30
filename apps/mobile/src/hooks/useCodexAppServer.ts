@@ -1,0 +1,559 @@
+import { useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
+
+import type {
+  Thread,
+  ThreadListResponse,
+  ThreadReadResponse,
+  ThreadStartResponse,
+} from "@codex-mobile/protocol/v2";
+
+import { JsonRpcClient } from "@/lib/jsonRpcClient";
+import { flattenTurns, type TimelineEntry } from "@/lib/threadFormat";
+import type { ConnectionState, PendingApproval, ReadinessStatus } from "@/types/codex";
+
+import {
+  ensureThreadResumed,
+  formatReadinessLog,
+  getInProgressTurnId,
+  loadTurnPage,
+  normalizeConnection,
+  startTurn,
+} from "./codex-app-server/api";
+import { handleNotification } from "./codex-app-server/notifications";
+import {
+  clearDeltaTimer,
+  countUserText,
+  isSameTimeline,
+  mergePendingEntries,
+  reconcilePendingEntries,
+  uniqueCwds,
+} from "./codex-app-server/timelineState";
+import type { DeltaBuffer, LiveEvent, NormalizedConnection, PendingEntry } from "./codex-app-server/types";
+
+const DETAIL_REFRESH_INTERVAL_MS = 3000;
+const RECONNECT_BASE_DELAY_MS = 1000;
+const RECONNECT_MAX_DELAY_MS = 10000;
+
+export type CodexAppServerState = ReturnType<typeof useCodexAppServer>;
+
+export function useCodexAppServer() {
+  const [state, setState] = useState<ConnectionState>("idle");
+  const [logs, setLogs] = useState<string[]>([]);
+  const [threads, setThreads] = useState<Thread[]>([]);
+  const [selectedThread, setSelectedThread] = useState<Thread | null>(null);
+  const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
+  const [events, setEvents] = useState<LiveEvent[]>([]);
+  const [approval, setApproval] = useState<PendingApproval | null>(null);
+  const [readiness, setReadiness] = useState<ReadinessStatus | null>(null);
+  const [isOpeningThread, setIsOpeningThread] = useState(false);
+  const [isRefreshingThreads, setIsRefreshingThreads] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [isRefreshingThread, setIsRefreshingThread] = useState(false);
+  const [isCreatingThread, setIsCreatingThread] = useState(false);
+  const [isInterruptingTurn, setIsInterruptingTurn] = useState(false);
+  const [olderTurnsCursor, setOlderTurnsCursor] = useState<string | null>(null);
+  const [activeTurnId, setActiveTurnId] = useState<string | null>(null);
+  const [pendingEntries, setPendingEntries] = useState<PendingEntry[]>([]);
+  const [recentError, setRecentError] = useState<string | null>(null);
+
+  const clientRef = useRef<JsonRpcClient | null>(null);
+  const pendingCounterRef = useRef(1);
+  const lastConnectionRef = useRef<NormalizedConnection | null>(null);
+  const manualDisconnectRef = useRef(false);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reconnectAttemptRef = useRef(0);
+  const selectedThreadIdRef = useRef<string | null>(null);
+  const deltaBufferRef = useRef<DeltaBuffer>({
+    timer: null,
+    chunks: new Map(),
+  });
+
+  const client = useMemo(() => {
+    const instance = new JsonRpcClient({
+      onStateChange: (nextState) => {
+        setState(nextState);
+        if (nextState === "closed" || nextState === "error" || nextState === "idle") {
+          setActiveTurnId(null);
+          setApproval(null);
+        }
+      },
+      onNotification: (message) => {
+        handleNotification(message, {
+          setThreads,
+          setSelectedThread,
+          setTimeline,
+          setEvents,
+          selectedThreadIdRef,
+          deltaBufferRef,
+          setActiveTurnId,
+          setApproval,
+        });
+      },
+      onApproval: setApproval,
+      onLog: (line) => {
+        setLogs((current) => [line, ...current].slice(0, 30));
+        if (isErrorLog(line)) {
+          setRecentError(line);
+        }
+      },
+    });
+    clientRef.current = instance;
+    return instance;
+  }, []);
+
+  const visibleTimeline = useMemo(
+    () => mergePendingEntries(timeline, pendingEntries, selectedThread?.id ?? null),
+    [timeline, pendingEntries, selectedThread?.id],
+  );
+  const recentCwds = useMemo(() => uniqueCwds(threads), [threads]);
+
+  useEffect(() => {
+    selectedThreadIdRef.current = selectedThread?.id ?? null;
+  }, [selectedThread?.id]);
+
+  useEffect(() => {
+    if (!selectedThread || isOpeningThread || state !== "connected") {
+      return;
+    }
+
+    const timer = setInterval(() => {
+      void refreshSelectedThread({ silent: true });
+    }, DETAIL_REFRESH_INTERVAL_MS);
+
+    return () => clearInterval(timer);
+  }, [selectedThread?.id, isOpeningThread, state]);
+
+  useEffect(() => {
+    if (state !== "connected") {
+      return;
+    }
+
+    clearReconnectTimer(reconnectTimerRef);
+    reconnectAttemptRef.current = 0;
+    setRecentError(null);
+    void refreshThreads();
+    if (selectedThread) {
+      void refreshSelectedThread({ silent: true });
+    }
+  }, [state]);
+
+  useEffect(() => {
+    if (state !== "closed" && state !== "error") {
+      return;
+    }
+
+    if (manualDisconnectRef.current || !lastConnectionRef.current) {
+      return;
+    }
+
+    scheduleReconnect();
+  }, [state]);
+
+  useEffect(
+    () => () => {
+      clearReconnectTimer(reconnectTimerRef);
+      clearDeltaTimer(deltaBufferRef);
+    },
+    [],
+  );
+
+  const connect = (url: string, token = "") => {
+    setReadiness(null);
+    setRecentError(null);
+    clearReconnectTimer(reconnectTimerRef);
+    manualDisconnectRef.current = false;
+    reconnectAttemptRef.current = 0;
+
+    try {
+      const target = normalizeConnection(url, token);
+      lastConnectionRef.current = target;
+      client.connect(target.socketUrl, target.authToken);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      lastConnectionRef.current = null;
+      setRecentError(message);
+      setLogs((current) => [`connect failed: ${message}`, ...current].slice(0, 30));
+    }
+  };
+
+  const disconnect = () => {
+    manualDisconnectRef.current = true;
+    clearReconnectTimer(reconnectTimerRef);
+    client.disconnect();
+    setState("closed");
+  };
+
+  const scheduleReconnect = () => {
+    const target = lastConnectionRef.current;
+
+    if (!target) {
+      return;
+    }
+
+    if (reconnectTimerRef.current) {
+      setState("reconnecting");
+      return;
+    }
+
+    const attempt = reconnectAttemptRef.current + 1;
+    const delay = Math.min(RECONNECT_BASE_DELAY_MS * 2 ** (attempt - 1), RECONNECT_MAX_DELAY_MS);
+    reconnectAttemptRef.current = attempt;
+
+    setState("reconnecting");
+    setLogs((current) => [`连接断开，${Math.round(delay / 1000)} 秒后自动重连（第 ${attempt} 次）`, ...current].slice(0, 30));
+
+    reconnectTimerRef.current = setTimeout(() => {
+      reconnectTimerRef.current = null;
+
+      if (manualDisconnectRef.current || !lastConnectionRef.current) {
+        return;
+      }
+
+      // 自动重连复用上一次规范化后的地址，避免 SecureStore 或输入框里的旧 query 干扰。
+      client.connect(target.socketUrl, target.authToken);
+    }, delay);
+  };
+
+  const closeThread = () => {
+    selectedThreadIdRef.current = null;
+    clearDeltaTimer(deltaBufferRef);
+    deltaBufferRef.current.chunks.clear();
+    setSelectedThread(null);
+    setTimeline([]);
+    setIsOpeningThread(false);
+    setIsLoadingMore(false);
+    setIsRefreshingThread(false);
+    setIsInterruptingTurn(false);
+    setOlderTurnsCursor(null);
+    setActiveTurnId(null);
+  };
+
+  const refreshThreads = async () => {
+    if (isRefreshingThreads) {
+      return;
+    }
+
+    setIsRefreshingThreads(true);
+    try {
+      const result = await client.request<ThreadListResponse>("thread/list", {
+        limit: 30,
+        sortKey: "updated_at",
+        sortDirection: "desc",
+        archived: false,
+      });
+      setThreads(result.data);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setRecentError(`thread refresh failed: ${message}`);
+      setLogs((current) => [`thread refresh failed: ${message}`, ...current].slice(0, 30));
+    } finally {
+      setIsRefreshingThreads(false);
+    }
+  };
+
+  const openThread = async (thread: Thread) => {
+    selectedThreadIdRef.current = thread.id;
+    setSelectedThread(thread);
+    setTimeline([]);
+    setIsOpeningThread(true);
+    setOlderTurnsCursor(null);
+    setActiveTurnId(null);
+
+    try {
+      const resumedThread = await ensureThreadResumed(client, thread);
+      if (selectedThreadIdRef.current !== thread.id) {
+        return;
+      }
+      setSelectedThread(resumedThread);
+      const page = await loadTurnPage(client, resumedThread.id, null);
+      if (selectedThreadIdRef.current !== thread.id) {
+        return;
+      }
+      const pageTimeline = flattenTurns(page.turns);
+      setActiveTurnId(getInProgressTurnId(page.turns));
+      setTimeline(pageTimeline);
+      setOlderTurnsCursor(page.nextCursor);
+      setPendingEntries((current) => reconcilePendingEntries(current, pageTimeline, resumedThread.id));
+    } finally {
+      if (selectedThreadIdRef.current === thread.id) {
+        setIsOpeningThread(false);
+      }
+    }
+  };
+
+  const loadOlderMessages = async () => {
+    if (!selectedThread || !olderTurnsCursor || isLoadingMore) {
+      return;
+    }
+
+    const threadId = selectedThread.id;
+    setIsLoadingMore(true);
+    try {
+      const page = await loadTurnPage(client, threadId, olderTurnsCursor);
+      if (selectedThreadIdRef.current !== threadId) {
+        return;
+      }
+      setTimeline((current) => [...flattenTurns(page.turns), ...current]);
+      setOlderTurnsCursor(page.nextCursor);
+    } finally {
+      if (selectedThreadIdRef.current === threadId) {
+        setIsLoadingMore(false);
+      }
+    }
+  };
+
+  const sendMessage = async (text: string) => {
+    const trimmed = text.trim();
+
+    if (!selectedThread || !trimmed) {
+      return;
+    }
+
+    const sourceThread = selectedThread;
+    const pendingId = addPendingMessage(sourceThread.id, trimmed, countUserText(timeline, trimmed));
+
+    try {
+      const resumedThread = await sendMessageToThread(sourceThread, trimmed);
+      if (selectedThreadIdRef.current === sourceThread.id) {
+        setSelectedThread(resumedThread);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setRecentError(`send failed: ${message}`);
+      setLogs((current) => [`send failed: ${message}`, ...current].slice(0, 30));
+      setPendingEntries((current) =>
+        current.map((entry) => (entry.id === pendingId ? { ...entry, pending: false, failed: true, title: "发送失败" } : entry)),
+      );
+    }
+  };
+
+  const sendMessageToThread = async (thread: Thread, text: string) => {
+    const resumedThread = await ensureThreadResumed(client, thread);
+    await startTurn(client, resumedThread.id, text);
+    return resumedThread;
+  };
+
+  const addPendingMessage = (threadId: string, text: string, baselineCount: number) => {
+    const pendingId = `pending:${threadId}:${Date.now()}:${pendingCounterRef.current}`;
+    pendingCounterRef.current += 1;
+
+    setPendingEntries((current) => [
+      ...current,
+      {
+        id: pendingId,
+        role: "user",
+        title: "You",
+        body: text,
+        timestampMs: Date.now(),
+        threadId,
+        sourceText: text,
+        baselineCount,
+        pending: true,
+      },
+    ]);
+
+    return pendingId;
+  };
+
+  const createThread = async (cwd: string, message: string) => {
+    const trimmedCwd = cwd.trim();
+    const trimmedMessage = message.trim();
+
+    if (!trimmedCwd || !trimmedMessage || isCreatingThread) {
+      return;
+    }
+
+    setIsCreatingThread(true);
+    setRecentError(null);
+
+    try {
+      const result = await client.request<ThreadStartResponse>("thread/start", {
+        cwd: trimmedCwd,
+        experimentalRawEvents: false,
+        persistExtendedHistory: false,
+      });
+
+      setThreads((current) => [result.thread, ...current.filter((thread) => thread.id !== result.thread.id)]);
+      setSelectedThread(result.thread);
+      setTimeline([]);
+      setOlderTurnsCursor(null);
+      addPendingMessage(result.thread.id, trimmedMessage, 0);
+
+      await sendMessageToThread(result.thread, trimmedMessage);
+      await openThread(result.thread);
+    } catch (error) {
+      const messageText = error instanceof Error ? error.message : String(error);
+      setRecentError(`create failed: ${messageText}`);
+      setLogs((current) => [`create failed: ${messageText}`, ...current].slice(0, 30));
+    } finally {
+      setIsCreatingThread(false);
+    }
+  };
+
+  const resolveApproval = async (decision: "accept" | "acceptForSession" | "decline" | "cancel") => {
+    if (!approval) {
+      return;
+    }
+
+    await client.resolveApproval(approval, decision);
+    setApproval(null);
+  };
+
+  const probeReadiness = async (url: string, token = "") => {
+    try {
+      const target = normalizeConnection(url, token);
+      const result = await client.probeReadiness(target.socketUrl, target.authToken);
+      setReadiness(result);
+      setLogs((current) => [formatReadinessLog(result), ...current].slice(0, 30));
+      if (!result.ok) {
+        setRecentError(result.error);
+      }
+      return result;
+    } catch (error) {
+      const result: ReadinessStatus = {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+      setReadiness(result);
+      setRecentError(result.error);
+      setLogs((current) => [formatReadinessLog(result), ...current].slice(0, 30));
+      return result;
+    }
+  };
+
+  const interruptTurn = async () => {
+    if (!selectedThread || !activeTurnId || isInterruptingTurn) {
+      return;
+    }
+
+    setIsInterruptingTurn(true);
+
+    try {
+      await client.request("turn/interrupt", {
+        threadId: selectedThread.id,
+        turnId: activeTurnId,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setRecentError(`interrupt failed: ${message}`);
+      setLogs((current) => [`interrupt failed: ${message}`, ...current].slice(0, 30));
+    } finally {
+      setIsInterruptingTurn(false);
+    }
+  };
+
+  const refreshSelectedThread = async (options: { silent?: boolean } = {}) => {
+    if (!selectedThread) {
+      return;
+    }
+
+    const threadId = selectedThread.id;
+
+    if (!options.silent) {
+      setIsRefreshingThread(true);
+    }
+
+    try {
+      const threadResponse = await client.request<ThreadReadResponse>("thread/read", {
+        threadId,
+        includeTurns: false,
+      });
+      if (selectedThreadIdRef.current !== threadId) {
+        return;
+      }
+      const page = await loadTurnPage(client, threadResponse.thread.id, null);
+      if (selectedThreadIdRef.current !== threadId) {
+        return;
+      }
+      const nextTimeline = flattenTurns(page.turns);
+
+      setSelectedThread(threadResponse.thread);
+      setActiveTurnId(getInProgressTurnId(page.turns));
+      setThreads((current) =>
+        current.map((thread) => (thread.id === threadResponse.thread.id ? { ...thread, status: threadResponse.thread.status } : thread)),
+      );
+      setOlderTurnsCursor(page.nextCursor);
+      setTimeline((current) => (isSameTimeline(current, nextTimeline) ? current : nextTimeline));
+      setPendingEntries((current) => reconcilePendingEntries(current, nextTimeline, threadResponse.thread.id));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setRecentError(`refresh failed: ${message}`);
+      setLogs((current) => [`refresh failed: ${message}`, ...current].slice(0, 30));
+    } finally {
+      if (!options.silent && selectedThreadIdRef.current === threadId) {
+        setIsRefreshingThread(false);
+      }
+    }
+  };
+
+  return {
+    state,
+    logs,
+    recentError,
+    threads,
+    recentCwds,
+    selectedThread,
+    timeline: visibleTimeline,
+    events,
+    approval,
+    readiness,
+    isOpeningThread,
+    isRefreshingThreads,
+    isLoadingMore,
+    isRefreshingThread,
+    isCreatingThread,
+    isInterruptingTurn,
+    isResponding: Boolean(activeTurnId) || selectedThread?.status.type === "active",
+    statusLabel: activeTurnId ? "正在回复..." : getThreadStatusLabel(selectedThread),
+    hasMoreMessages: Boolean(olderTurnsCursor),
+    connect,
+    disconnect,
+    closeThread,
+    probeReadiness,
+    refreshThreads,
+    openThread,
+    loadOlderMessages,
+    refreshSelectedThread,
+    createThread,
+    sendMessage,
+    interruptTurn,
+    resolveApproval,
+  };
+}
+
+function getThreadStatusLabel(thread: Thread | null) {
+  if (!thread) {
+    return null;
+  }
+
+  if (thread.status.type === "active") {
+    if (thread.status.activeFlags.includes("waitingOnApproval")) {
+      return "等待审批...";
+    }
+
+    if (thread.status.activeFlags.includes("waitingOnUserInput")) {
+      return "等待输入...";
+    }
+
+    return "正在回复...";
+  }
+
+  if (thread.status.type === "systemError") {
+    return "系统错误";
+  }
+
+  return null;
+}
+
+function isErrorLog(line: string) {
+  return /error|failed|closed|403|拒绝|失败/i.test(line);
+}
+
+function clearReconnectTimer(timerRef: MutableRefObject<ReturnType<typeof setTimeout> | null>) {
+  if (!timerRef.current) {
+    return;
+  }
+
+  clearTimeout(timerRef.current);
+  timerRef.current = null;
+}

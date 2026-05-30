@@ -1,0 +1,28 @@
+{
+  "name": "mobile",
+  "version": "1.0.0",
+  "main": "index.ts",
+  "dependencies": {
+    "@expo/vector-icons": "^15.1.1",
+    "@shopify/flash-list": "^2.3.1",
+    "expo": "~56.0.5",
+    "expo-camera": "~56.0.7",
+    "expo-clipboard": "^56.0.3",
+    "expo-secure-store": "~56.0.4",
+    "expo-status-bar": "~56.0.4",
+    "react": "19.2.3",
+    "react-native": "0.85.3"
+  },
+  "devDependencies": {
+    "@types/react": "~19.2.2",
+    "typescript": "~6.0.3"
+  },
+  "scripts": {
+    "start": "expo start --port 8097 --host lan",
+    "android": "expo start --port 8097 --host lan --android",
+    "ios": "expo start --port 8097 --host lan --ios",
+    "web": "expo start --port 8097 --host lan --web",
+    "typecheck": "tsc --noEmit"
+  },
+  "private": true
+}

@@ -1,0 +1,116 @@
+import { ScrollView, StyleSheet, Text, View } from "react-native";
+
+import { ApprovalBanner } from "@/components/ApprovalBanner";
+import { ConnectionPanel } from "@/components/ConnectionPanel";
+import { EventLog } from "@/components/EventLog";
+import { ThreadList } from "@/components/ThreadList";
+import type { CodexAppServerState } from "@/hooks/useCodexAppServer";
+import type { Thread } from "@codex-mobile/protocol/v2";
+
+import { RootTabBar, type RootTab } from "./RootTabBar";
+
+type Props = {
+  activeTab: RootTab;
+  codex: CodexAppServerState;
+  onOpenThread: (thread: Thread) => void;
+  onTabChange: (tab: RootTab) => void;
+};
+
+export function HomeTabs({ activeTab, codex, onOpenThread, onTabChange }: Props) {
+  return (
+    <View style={styles.shell}>
+      <View style={styles.header}>
+        <View>
+          <Text style={styles.title}>Codex</Text>
+          <Text style={styles.subtitle}>{activeTab === "connection" ? "连接管理" : "会话"}</Text>
+        </View>
+        <Text style={[styles.headerBadge, codex.state === "connected" && styles.headerBadgeConnected]}>{codex.state}</Text>
+      </View>
+
+      <ScrollView contentContainerStyle={styles.content}>
+        {activeTab === "connection" ? (
+          <>
+            <ConnectionPanel
+              state={codex.state}
+              readiness={codex.readiness}
+              recentError={codex.recentError}
+              onConnect={codex.connect}
+              onDisconnect={codex.disconnect}
+              onProbe={codex.probeReadiness}
+            />
+            <ApprovalBanner approval={codex.approval} compact onResolve={codex.resolveApproval} />
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>连接事件</Text>
+            </View>
+            <EventLog events={codex.events} logs={codex.logs} />
+          </>
+        ) : (
+          <>
+            <ApprovalBanner approval={codex.approval} compact onResolve={codex.resolveApproval} />
+            <ThreadList
+              onOpen={onOpenThread}
+              onRefresh={codex.refreshThreads}
+              isRefreshing={codex.isRefreshingThreads}
+              selectedThreadId={codex.selectedThread?.id}
+              threads={codex.threads}
+            />
+          </>
+        )}
+      </ScrollView>
+
+      <RootTabBar activeTab={activeTab} onChange={onTabChange} />
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  shell: {
+    flex: 1,
+  },
+  content: {
+    gap: 16,
+    padding: 16,
+    paddingBottom: 24,
+  },
+  header: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingBottom: 10,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+  },
+  title: {
+    color: "#121a26",
+    fontSize: 32,
+    fontWeight: "900",
+  },
+  subtitle: {
+    color: "#516071",
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  headerBadge: {
+    backgroundColor: "#edf1f7",
+    borderRadius: 999,
+    color: "#516071",
+    fontSize: 12,
+    fontWeight: "800",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  headerBadgeConnected: {
+    backgroundColor: "#dff7e8",
+    color: "#19663b",
+  },
+  sectionHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  sectionTitle: {
+    color: "#182230",
+    fontSize: 16,
+    fontWeight: "800",
+  },
+});

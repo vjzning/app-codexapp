@@ -1,0 +1,7 @@
+tunnel: <your-tunnel-id-or-name>
+credentials-file: /Users/<you>/.cloudflared/<your-tunnel-id>.json
+
+ingress:
+  - hostname: codex-mobile.zaime.me
+    service: http://127.0.0.1:4501
+  - service: http_status:404
