@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Platform, Pressable, SafeAreaView, StatusBar as NativeStatusBar, StyleSheet, Text, TextInput, View } from "react-native";
+import { Modal, Platform, Pressable, SafeAreaView, StatusBar as NativeStatusBar, StyleSheet, Text, TextInput, View } from "react-native";
 import { FlashList, type FlashListRef } from "@shopify/flash-list";
 
 import type { Thread } from "@codex-mobile/protocol/v2";
@@ -36,6 +36,7 @@ type Props = {
   onLoadMore: () => void;
   onRefresh: () => void;
   onSend: (text: string) => void | Promise<void>;
+  onRunShellCommand?: (command: string) => void | Promise<void>;
   onInterrupt: () => void;
   onResolveApproval?: (decision: ApprovalDecision) => void;
   onResolveUserInputRequest?: (response: ToolRequestUserInputResponse) => void;
@@ -59,6 +60,7 @@ export function ThreadDetail({
   onLoadMore,
   onRefresh,
   onSend,
+  onRunShellCommand,
   onInterrupt,
   onResolveApproval,
   onResolveUserInputRequest,
@@ -67,6 +69,9 @@ export function ThreadDetail({
   const [selectedFileChange, setSelectedFileChange] = useState<TimelineFileChange | null>(null);
   const [selectedAttachment, setSelectedAttachment] = useState<TimelineAttachment | null>(null);
   const [selectedCommandEntry, setSelectedCommandEntry] = useState<TimelineEntry | null>(null);
+  const [toolsVisible, setToolsVisible] = useState(false);
+  const [commandSheetVisible, setCommandSheetVisible] = useState(false);
+  const [shellCommand, setShellCommand] = useState("");
   const listRef = useRef<FlashListRef<TimelineEntry>>(null);
   const inputRef = useRef<TextInput>(null);
   const isNearBottomRef = useRef(true);
@@ -110,6 +115,29 @@ export function ThreadDetail({
     }
     void onSend(message);
     setMessage("");
+  };
+
+  const insertMentionShortcut = (shortcut: "$skill" | "$app") => {
+    setMessage((current) => `${current}${current.endsWith(" ") || current.length === 0 ? "" : " "}${shortcut} `);
+    setToolsVisible(false);
+    setTimeout(() => inputRef.current?.focus(), 80);
+  };
+
+  const openCommandSheet = () => {
+    setToolsVisible(false);
+    setCommandSheetVisible(true);
+  };
+
+  const runShellCommand = async () => {
+    const trimmed = shellCommand.trim();
+
+    if (!trimmed || !onRunShellCommand) {
+      return;
+    }
+
+    await onRunShellCommand(trimmed);
+    setShellCommand("");
+    setCommandSheetVisible(false);
   };
 
   const handleScroll = useCallback((event: { nativeEvent: { contentOffset: { y: number }; contentSize: { height: number }; layoutMeasurement: { height: number } } }) => {
@@ -226,8 +254,25 @@ export function ThreadDetail({
       <DiffModal fileChange={selectedFileChange} onClose={() => setSelectedFileChange(null)} workspacePath={thread.cwd} />
       <CommandOutputModal entry={selectedCommandEntry} onClose={() => setSelectedCommandEntry(null)} />
       <ImagePreviewModal attachment={selectedAttachment} onClose={() => setSelectedAttachment(null)} />
+      <ComposerToolsModal
+        onClose={() => setToolsVisible(false)}
+        onInsertApp={() => insertMentionShortcut("$app")}
+        onInsertSkill={() => insertMentionShortcut("$skill")}
+        onRunCommand={openCommandSheet}
+        visible={toolsVisible}
+      />
+      <ShellCommandModal
+        command={shellCommand}
+        onChangeCommand={setShellCommand}
+        onClose={() => setCommandSheetVisible(false)}
+        onSubmit={() => void runShellCommand()}
+        visible={commandSheetVisible}
+      />
 
       <View style={styles.composer}>
+        <Pressable disabled={isResponding} onPress={() => setToolsVisible(true)} style={[styles.toolButton, isResponding && styles.toolButtonDisabled]}>
+          <Text style={styles.toolButtonText}>+</Text>
+        </Pressable>
         <TextInput
           ref={inputRef}
           editable={!isResponding}
@@ -251,6 +296,84 @@ export function ThreadDetail({
 
 function MessageSeparator() {
   return <View style={styles.messageSeparator} />;
+}
+
+function ComposerToolsModal({
+  visible,
+  onClose,
+  onRunCommand,
+  onInsertSkill,
+  onInsertApp,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  onRunCommand: () => void;
+  onInsertSkill: () => void;
+  onInsertApp: () => void;
+}) {
+  return (
+    <Modal animationType="fade" onRequestClose={onClose} transparent visible={visible}>
+      <Pressable onPress={onClose} style={styles.modalBackdrop}>
+        <View style={styles.toolSheet}>
+          <Text style={styles.toolSheetTitle}>输入增强</Text>
+          <Pressable onPress={onRunCommand} style={styles.toolAction}>
+            <Text style={styles.toolActionTitle}>运行命令</Text>
+            <Text style={styles.toolActionText}>在当前会话执行 shell command</Text>
+          </Pressable>
+          <Pressable onPress={onInsertSkill} style={styles.toolAction}>
+            <Text style={styles.toolActionTitle}>插入 Skill</Text>
+            <Text style={styles.toolActionText}>快速插入 `$skill` 提及</Text>
+          </Pressable>
+          <Pressable onPress={onInsertApp} style={styles.toolAction}>
+            <Text style={styles.toolActionTitle}>插入 App / 插件</Text>
+            <Text style={styles.toolActionText}>快速插入 `$app` 提及</Text>
+          </Pressable>
+        </View>
+      </Pressable>
+    </Modal>
+  );
+}
+
+function ShellCommandModal({
+  visible,
+  command,
+  onChangeCommand,
+  onClose,
+  onSubmit,
+}: {
+  visible: boolean;
+  command: string;
+  onChangeCommand: (command: string) => void;
+  onClose: () => void;
+  onSubmit: () => void;
+}) {
+  return (
+    <Modal animationType="slide" onRequestClose={onClose} transparent visible={visible}>
+      <View style={styles.modalBackdropEnd}>
+        <View style={styles.commandSheet}>
+          <View style={styles.commandSheetHandle} />
+          <Text style={styles.commandSheetTitle}>运行命令</Text>
+          <TextInput
+            autoCapitalize="none"
+            autoCorrect={false}
+            multiline
+            onChangeText={onChangeCommand}
+            placeholder="例如 pnpm typecheck"
+            style={styles.commandInput}
+            value={command}
+          />
+          <View style={styles.commandActions}>
+            <Pressable onPress={onClose} style={styles.commandCancelButton}>
+              <Text style={styles.commandCancelText}>取消</Text>
+            </Pressable>
+            <Pressable disabled={!command.trim()} onPress={onSubmit} style={[styles.commandRunButton, !command.trim() && styles.commandRunButtonDisabled]}>
+              <Text style={styles.commandRunText}>运行</Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
 }
 
 const styles = StyleSheet.create({
@@ -383,6 +506,23 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 14,
   },
+  toolButton: {
+    alignItems: "center",
+    backgroundColor: "#edf1f7",
+    borderRadius: 999,
+    height: 44,
+    justifyContent: "center",
+    width: 44,
+  },
+  toolButtonDisabled: {
+    opacity: 0.5,
+  },
+  toolButtonText: {
+    color: "#2454d6",
+    fontSize: 28,
+    fontWeight: "500",
+    lineHeight: 32,
+  },
   input: {
     backgroundColor: "#f4f7fb",
     borderColor: "#d8dee8",
@@ -417,5 +557,108 @@ const styles = StyleSheet.create({
   sendText: {
     color: "#ffffff",
     fontWeight: "800",
+  },
+  modalBackdrop: {
+    backgroundColor: "rgba(24, 34, 48, 0.28)",
+    flex: 1,
+    justifyContent: "flex-end",
+    padding: 14,
+  },
+  modalBackdropEnd: {
+    backgroundColor: "rgba(24, 34, 48, 0.28)",
+    flex: 1,
+    justifyContent: "flex-end",
+  },
+  toolSheet: {
+    backgroundColor: "#ffffff",
+    borderRadius: 18,
+    gap: 8,
+    padding: 14,
+  },
+  toolSheetTitle: {
+    color: "#182230",
+    fontSize: 16,
+    fontWeight: "900",
+    paddingBottom: 4,
+  },
+  toolAction: {
+    backgroundColor: "#f4f7fb",
+    borderColor: "#d8dee8",
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 3,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+  },
+  toolActionTitle: {
+    color: "#182230",
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  toolActionText: {
+    color: "#6b7788",
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  commandSheet: {
+    backgroundColor: "#ffffff",
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    gap: 12,
+    padding: 14,
+    paddingTop: 8,
+  },
+  commandSheetHandle: {
+    alignSelf: "center",
+    backgroundColor: "#cfd7e3",
+    borderRadius: 999,
+    height: 4,
+    width: 44,
+  },
+  commandSheetTitle: {
+    color: "#182230",
+    fontSize: 16,
+    fontWeight: "900",
+  },
+  commandInput: {
+    backgroundColor: "#f4f7fb",
+    borderColor: "#d8dee8",
+    borderRadius: 12,
+    borderWidth: 1,
+    minHeight: 88,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    textAlignVertical: "top",
+  },
+  commandActions: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  commandCancelButton: {
+    alignItems: "center",
+    backgroundColor: "#edf1f7",
+    borderRadius: 12,
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 42,
+  },
+  commandCancelText: {
+    color: "#304052",
+    fontWeight: "900",
+  },
+  commandRunButton: {
+    alignItems: "center",
+    backgroundColor: "#2454d6",
+    borderRadius: 12,
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 42,
+  },
+  commandRunButtonDisabled: {
+    opacity: 0.45,
+  },
+  commandRunText: {
+    color: "#ffffff",
+    fontWeight: "900",
   },
 });

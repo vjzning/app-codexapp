@@ -338,6 +338,29 @@ export function useCodexAppServer() {
     return resumedThread;
   };
 
+  const runShellCommand = async (command: string) => {
+    const trimmed = command.trim();
+
+    if (!selectedThread || !trimmed) {
+      return;
+    }
+
+    try {
+      const resumedThread = await ensureThreadResumed(client, selectedThread);
+      if (selectedThreadIdRef.current === selectedThread.id) {
+        setSelectedThread(resumedThread);
+      }
+      await client.request("thread/shellCommand", {
+        threadId: resumedThread.id,
+        command: trimmed,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setRecentError(`shell command failed: ${message}`);
+      setLogs((current) => [`shell command failed: ${message}`, ...current].slice(0, 30));
+    }
+  };
+
   const addPendingMessage = (threadId: string, text: string, baselineCount: number) => {
     const pendingId = `pending:${threadId}:${Date.now()}:${pendingCounterRef.current}`;
     pendingCounterRef.current += 1;
@@ -531,6 +554,7 @@ export function useCodexAppServer() {
     refreshSelectedThread,
     createThread,
     sendMessage,
+    runShellCommand,
     interruptTurn,
     resolveApproval,
     resolveUserInputRequest,

@@ -116,6 +116,25 @@ export function removeBufferedDelta(bufferRef: React.MutableRefObject<DeltaBuffe
   bufferRef.current.chunks.delete(`${turnId}:${itemId}`);
 }
 
+export function appendCommandOutputDelta(current: TimelineEntry[], turnId: string, itemId: string, delta: string) {
+  const entryId = `${turnId}:${itemId}`;
+  const index = current.findIndex((entry) => entry.id === entryId);
+
+  if (index === -1) {
+    return current;
+  }
+
+  return current.map((entry, entryIndex) =>
+    entryIndex === index
+      ? {
+          ...entry,
+          body: appendTimelineBody(entry.body, delta),
+          commandOutput: `${entry.commandOutput ?? ""}${delta}`,
+        }
+      : entry,
+  );
+}
+
 function applyAgentMessageDelta(current: TimelineEntry[], turnId: string, itemId: string, delta: string) {
   const entryId = `${turnId}:${itemId}`;
   const index = current.findIndex((entry) => entry.id === entryId);

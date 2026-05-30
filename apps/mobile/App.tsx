@@ -62,6 +62,7 @@ export default function App() {
             onRefresh={codex.refreshSelectedThread}
             onResolveApproval={codex.resolveApproval}
             onResolveUserInputRequest={codex.resolveUserInputRequest}
+            onRunShellCommand={codex.runShellCommand}
             onSend={isDraftThread ? sendDraftMessage : codex.sendMessage}
             thread={codex.selectedThread}
             timeline={isDraftThread ? [] : codex.timeline}

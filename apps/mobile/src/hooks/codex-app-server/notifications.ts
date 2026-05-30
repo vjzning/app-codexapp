@@ -5,7 +5,7 @@ import { flattenTurns, timelineEntryFromThreadItem, type TimelineEntry } from "@
 import type { JsonRpcIncoming, PendingApproval, PendingUserInputRequest } from "@/types/codex";
 
 import type { DeltaBuffer, LiveEvent } from "./types";
-import { bufferAgentMessageDelta, flushBufferedDeltas, removeBufferedDelta } from "./timelineState";
+import { appendCommandOutputDelta, bufferAgentMessageDelta, flushBufferedDeltas, removeBufferedDelta } from "./timelineState";
 
 type NotificationHandlers = {
   setThreads: React.Dispatch<React.SetStateAction<Thread[]>>;
@@ -56,6 +56,12 @@ export function handleNotification(message: JsonRpcIncoming, handlers: Notificat
       notification.params.turnId,
       notification.params.itemId,
       notification.params.delta,
+    );
+  }
+
+  if (notification.method === "item/commandExecution/outputDelta" && notification.params.threadId === handlers.selectedThreadIdRef.current) {
+    handlers.setTimeline((current) =>
+      appendCommandOutputDelta(current, notification.params.turnId, notification.params.itemId, notification.params.delta),
     );
   }
 
