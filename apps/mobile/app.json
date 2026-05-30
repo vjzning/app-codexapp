@@ -9,7 +9,9 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "NSCameraUsageDescription": "用于扫描 Codex Mobile 连接二维码。"
+        "NSCameraUsageDescription": "用于扫描 Codex Mobile 连接二维码。",
+        "NSMicrophoneUsageDescription": "用于语音输入，将讲话内容转换为文字。",
+        "NSSpeechRecognitionUsageDescription": "用于语音输入，将讲话内容转换为文字。"
       }
     },
     "android": {
@@ -31,7 +33,14 @@
           "cameraPermission": "用于扫描 Codex Mobile 连接二维码。"
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "@react-native-voice/voice",
+        {
+          "microphonePermission": "用于语音输入，将讲话内容转换为文字。",
+          "speechRecognitionPermission": "用于语音输入，将讲话内容转换为文字。"
+        }
+      ]
     ]
   }
 }

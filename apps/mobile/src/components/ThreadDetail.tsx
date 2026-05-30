@@ -15,9 +15,11 @@ import { ImagePreviewModal } from "@/components/thread-detail/ImagePreviewModal"
 import { MessageBubble } from "@/components/thread-detail/MessageBubble";
 import { CommandOutputModal } from "@/components/thread-detail/CommandOutputModal";
 import { ThreadActionsModal } from "@/components/thread-detail/ThreadActionsModal";
+import { VoiceInputButton } from "@/components/thread-detail/VoiceInputButton";
 import { prepareThreadDetailTimeline } from "@/components/thread-detail/timelineDisplay";
 import { UserInputRequestCard } from "@/components/user-input/UserInputRequestCard";
 import { getUserInputTimelineEntryId } from "@/components/user-input/userInputFormat";
+import { useVoiceInput } from "@/hooks/useVoiceInput";
 import type { PendingApproval, PendingUserInputRequest } from "@/types/codex";
 import type { ComposerMention } from "@/types/composer";
 
@@ -113,6 +115,12 @@ export function ThreadDetail({
     [userInputEntryId, listData],
   );
   const emptyStateMinHeight = Math.max(260, windowHeight - 280);
+  const appendVoiceText = useCallback((text: string) => {
+    // 语音识别只负责产出文本，这里统一追加到 composer，避免语音 hook 依赖 UI 状态。
+    setMessage((current) => `${current}${current.trim().length ? " " : ""}${text}`);
+    setTimeout(() => inputRef.current?.focus(), 80);
+  }, []);
+  const voiceInput = useVoiceInput({ onResult: appendVoiceText });
 
   useEffect(() => {
     if (!isDraft) {
@@ -348,6 +356,7 @@ export function ThreadDetail({
           <Pressable onPress={() => setToolsVisible(true)} style={styles.toolButton}>
             <Text style={styles.toolButtonText}>+</Text>
           </Pressable>
+          <VoiceInputButton error={voiceInput.error} isListening={voiceInput.isListening} onPress={voiceInput.toggle} partialText={voiceInput.partialText} />
           <TextInput
             ref={inputRef}
             multiline
