@@ -40,8 +40,8 @@ export function FileChangeCard({ changes, workspacePath, initialVisibleCount = 3
         ) : null}
       </View>
       <View style={styles.fileRows}>
-        {visibleChanges.map((change) => (
-          <Pressable key={change.path} onPress={() => onOpenFileChange(change)} style={styles.fileRow}>
+        {visibleChanges.map((change, index) => (
+          <Pressable key={`${change.path}:${index}`} onPress={() => onOpenFileChange(change)} style={styles.fileRow}>
             <Text style={[styles.statusPill, getStatusPillStyle(change.status)]}>{change.kind}</Text>
             <Text numberOfLines={1} style={styles.filePath}>
               {formatWorkspaceRelativePath(change.path, workspacePath)}

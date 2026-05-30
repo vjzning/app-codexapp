@@ -126,7 +126,26 @@ function upsertTimelineEntryObject(current: TimelineEntry[], entry: TimelineEntr
     return [...current, entry];
   }
 
-  return current.map((candidate, candidateIndex) => (candidateIndex === index ? entry : candidate));
+  return current.map((candidate, candidateIndex) => (candidateIndex === index ? mergeTimelineEntry(candidate, entry) : candidate));
+}
+
+function mergeTimelineEntry(current: TimelineEntry, next: TimelineEntry) {
+  if (current.variant !== "command" || next.variant !== "command") {
+    return next;
+  }
+
+  const existingOutput = current.commandOutput || "";
+  const nextOutput = next.commandOutput || "";
+
+  if (nextOutput) {
+    return next;
+  }
+
+  return {
+    ...next,
+    body: next.body || current.body,
+    commandOutput: existingOutput,
+  };
 }
 
 function summarizeNotification(notification: ServerNotification) {

@@ -2,6 +2,7 @@ import type { ToolRequestUserInputResponse } from "@codex-mobile/protocol/v2";
 import { memo, useState } from "react";
 import * as Clipboard from "expo-clipboard";
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import Markdown from "react-native-markdown-display";
 
 import { ApprovalCard } from "@/components/approval/ApprovalCard";
 import type { ApprovalDecision } from "@/components/approval/approvalFormat";
@@ -11,6 +12,7 @@ import type { PendingApproval, PendingUserInputRequest } from "@/types/codex";
 
 import { AttachmentGallery } from "./AttachmentGallery";
 import { CommandExecutionCard } from "./CommandExecutionCard";
+import { CommandGroupCard } from "./CommandGroupCard";
 import { FileChangeCard } from "./FileChangeCard";
 import { formatMessageTime } from "./utils";
 
@@ -48,8 +50,10 @@ export const MessageBubble = memo(function MessageBubble({
   const visibleBody = shouldCollapse && !expanded ? `${entry.body.slice(0, 1200)}\n\n...[tap to expand]` : entry.body || fallbackBody;
   const isFileChange = Boolean(entry.fileChanges?.length);
   const isCommandCard = entry.variant === "command";
-  const isToolCard = entry.role === "tool" && isFileChange;
+  const isCommandGroup = entry.variant === "commandGroup";
+  const isToolCard = entry.role === "tool" && (isFileChange || isCommandGroup);
   const canCopy = entry.role === "user" && Boolean(entry.body.trim());
+  const shouldRenderMarkdown = entry.role === "assistant" && entry.title === "Codex";
   const showBubbleHeader = entry.role !== "user" || Boolean(entry.metaLabel || entry.streaming || entry.pending || entry.failed);
   const matchedApproval = approval && onResolveApproval && approvalEntryId === entry.id ? approval : null;
   const matchedUserInputRequest = userInputRequest && onResolveUserInputRequest && userInputEntryId === entry.id ? userInputRequest : null;
@@ -67,7 +71,7 @@ export const MessageBubble = memo(function MessageBubble({
   return (
     <View style={[styles.messageRow, entry.role === "user" ? styles.messageRowUser : styles.messageRowOther, (isToolCard || isCommandCard) && styles.messageRowFull]}>
       <Pressable
-        disabled={!shouldCollapse || isFileChange || isCommandCard}
+        disabled={!shouldCollapse || isFileChange || isCommandCard || isCommandGroup}
         onPress={() => setExpanded((current) => !current)}
         style={[
           styles.bubble,
@@ -78,6 +82,7 @@ export const MessageBubble = memo(function MessageBubble({
         ]}
       >
         {isCommandCard ? <CommandExecutionCard entry={entry} onOpenOutput={onOpenCommandOutput} /> : null}
+        {isCommandGroup ? <CommandGroupCard entry={entry} onOpenOutput={onOpenCommandOutput} /> : null}
         {isCommandCard && matchedApproval && onResolveApproval ? <ApprovalCard approval={matchedApproval} onResolve={onResolveApproval} /> : null}
         {isCommandCard && matchedUserInputRequest && onResolveUserInputRequest ? (
           <UserInputRequestCard request={matchedUserInputRequest} onSubmit={onResolveUserInputRequest} />
@@ -91,7 +96,7 @@ export const MessageBubble = memo(function MessageBubble({
             {entry.failed ? <Text style={styles.failedText}>失败</Text> : null}
           </View>
         )}
-        {!isCommandCard && entry.attachments?.length ? <AttachmentGallery entry={entry} onOpenAttachment={onOpenAttachment} /> : null}
+        {!isCommandCard && !isCommandGroup && entry.attachments?.length ? <AttachmentGallery entry={entry} onOpenAttachment={onOpenAttachment} /> : null}
         {!isCommandCard && entry.fileChanges?.length ? (
           <>
             <FileChangeCard changes={entry.fileChanges} onOpenFileChange={onOpenFileChange} workspacePath={workspacePath} />
@@ -100,10 +105,14 @@ export const MessageBubble = memo(function MessageBubble({
               <UserInputRequestCard request={matchedUserInputRequest} onSubmit={onResolveUserInputRequest} />
             ) : null}
           </>
-        ) : isCommandCard ? null : (
+        ) : isCommandCard || isCommandGroup ? null : (
           <>
             {entry.body || !entry.attachments?.length ? (
+              shouldRenderMarkdown ? (
+                <Markdown style={markdownStyles}>{visibleBody}</Markdown>
+              ) : (
               <Text style={[styles.bubbleBody, entry.role === "user" && styles.userBubbleBody]}>{visibleBody}</Text>
+              )
             ) : null}
             {shouldCollapse ? <Text style={styles.expandHint}>{expanded ? "收起" : "展开全文"}</Text> : null}
             {entry.role === "user" ? (
@@ -237,9 +246,8 @@ const styles = StyleSheet.create({
   },
   bubbleBody: {
     color: "#182230",
-    fontFamily: "Menlo",
-    fontSize: 12,
-    lineHeight: 18,
+    fontSize: 14,
+    lineHeight: 21,
   },
   userBubbleBody: {
     color: "#ffffff",
@@ -248,5 +256,98 @@ const styles = StyleSheet.create({
     color: "#516071",
     fontSize: 11,
     fontWeight: "700",
+  },
+});
+
+const markdownStyles = StyleSheet.create({
+  body: {
+    color: "#182230",
+    fontSize: 14,
+    lineHeight: 21,
+  },
+  paragraph: {
+    marginBottom: 8,
+    marginTop: 0,
+  },
+  text: {
+    color: "#182230",
+  },
+  strong: {
+    fontWeight: "900",
+  },
+  em: {
+    fontStyle: "italic",
+  },
+  bullet_list: {
+    marginBottom: 8,
+    marginTop: 0,
+  },
+  ordered_list: {
+    marginBottom: 8,
+    marginTop: 0,
+  },
+  list_item: {
+    marginBottom: 4,
+  },
+  code_inline: {
+    backgroundColor: "#eef2f7",
+    borderRadius: 5,
+    color: "#1f3a5f",
+    fontFamily: "Menlo",
+    fontSize: 13,
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+  },
+  fence: {
+    backgroundColor: "#111827",
+    borderRadius: 8,
+    color: "#e5e7eb",
+    fontFamily: "Menlo",
+    fontSize: 12,
+    lineHeight: 18,
+    marginBottom: 8,
+    marginTop: 4,
+    padding: 10,
+  },
+  code_block: {
+    backgroundColor: "#111827",
+    borderRadius: 8,
+    color: "#e5e7eb",
+    fontFamily: "Menlo",
+    fontSize: 12,
+    lineHeight: 18,
+    marginBottom: 8,
+    marginTop: 4,
+    padding: 10,
+  },
+  blockquote: {
+    backgroundColor: "#f4f7fb",
+    borderLeftColor: "#9fb4d8",
+    borderLeftWidth: 3,
+    marginBottom: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  link: {
+    color: "#2454d6",
+    fontWeight: "800",
+  },
+  heading1: {
+    color: "#182230",
+    fontSize: 18,
+    fontWeight: "900",
+    marginBottom: 8,
+  },
+  heading2: {
+    color: "#182230",
+    fontSize: 16,
+    fontWeight: "900",
+    marginBottom: 8,
+  },
+  heading3: {
+    color: "#182230",
+    fontSize: 15,
+    fontWeight: "900",
+    marginBottom: 6,
   },
 });

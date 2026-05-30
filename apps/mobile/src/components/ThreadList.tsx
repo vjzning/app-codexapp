@@ -53,8 +53,16 @@ export function ThreadList({ threads, selectedThreadId, isRefreshing = false, on
           </Pressable>
         ) : null}
       </View>
-      {threads.length === 0 ? <Text style={styles.empty}>{isRefreshing ? "正在加载会话..." : "连接后刷新会话列表"}</Text> : null}
-      {threads.length > 0 && filteredThreads.length === 0 ? <Text style={styles.empty}>没有匹配的会话</Text> : null}
+      {threads.length === 0 ? (
+        <View style={styles.emptyState}>
+          <Text style={styles.empty}>{isRefreshing ? "正在加载会话..." : "连接后刷新会话列表"}</Text>
+        </View>
+      ) : null}
+      {threads.length > 0 && filteredThreads.length === 0 ? (
+        <View style={styles.emptyState}>
+          <Text style={styles.empty}>没有匹配的会话</Text>
+        </View>
+      ) : null}
       {groups.map((group) => {
         const collapsed = Boolean(collapsedGroups[group.name]);
         return (
@@ -262,6 +270,14 @@ const styles = StyleSheet.create({
   empty: {
     color: "#6b7788",
     fontSize: 13,
+    textAlign: "center",
+  },
+  emptyState: {
+    alignItems: "center",
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 280,
+    paddingHorizontal: 20,
   },
   searchBox: {
     alignItems: "center",

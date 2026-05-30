@@ -9,7 +9,7 @@ import type {
 } from "@codex-mobile/protocol/v2";
 
 import { JsonRpcClient } from "@/lib/jsonRpcClient";
-import { flattenTurns, type TimelineEntry } from "@/lib/threadFormat";
+import { flattenTurns, timelineEntryFromCommandApproval, type TimelineEntry } from "@/lib/threadFormat";
 import type { ConnectionState, PendingApproval, PendingUserInputRequest, ReadinessStatus } from "@/types/codex";
 
 import {
@@ -25,6 +25,7 @@ import {
   clearDeltaTimer,
   countUserText,
   isSameTimeline,
+  mergeTimelineSnapshot,
   mergePendingEntries,
   reconcilePendingEntries,
   uniqueCwds,
@@ -93,7 +94,12 @@ export function useCodexAppServer() {
           setUserInputRequest,
         });
       },
-      onApproval: setApproval,
+      onApproval: (request) => {
+        setApproval(request);
+        if (request.method === "item/commandExecution/requestApproval" && request.params.threadId === selectedThreadIdRef.current) {
+          setTimeline((current) => upsertTimelineEntry(current, timelineEntryFromCommandApproval(request.params)));
+        }
+      },
       onUserInputRequest: setUserInputRequest,
       onLog: (line) => {
         setLogs((current) => [line, ...current].slice(0, 30));
@@ -503,14 +509,16 @@ export function useCodexAppServer() {
         return;
       }
       const nextTimeline = flattenTurns(page.turns);
-
       setSelectedThread(threadResponse.thread);
       setActiveTurnId(getInProgressTurnId(page.turns));
       setThreads((current) =>
         current.map((thread) => (thread.id === threadResponse.thread.id ? { ...thread, status: threadResponse.thread.status } : thread)),
       );
       setOlderTurnsCursor(page.nextCursor);
-      setTimeline((current) => (isSameTimeline(current, nextTimeline) ? current : nextTimeline));
+      setTimeline((current) => {
+        const mergedTimeline = mergeTimelineSnapshot(current, nextTimeline);
+        return isSameTimeline(current, mergedTimeline) ? current : mergedTimeline;
+      });
       setPendingEntries((current) => reconcilePendingEntries(current, nextTimeline, threadResponse.thread.id));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -559,6 +567,24 @@ export function useCodexAppServer() {
     resolveApproval,
     resolveUserInputRequest,
   };
+}
+
+function upsertTimelineEntry(current: TimelineEntry[], entry: TimelineEntry) {
+  const index = current.findIndex((candidate) => candidate.id === entry.id);
+
+  if (index === -1) {
+    return [...current, entry];
+  }
+
+  return current.map((candidate, candidateIndex) =>
+    candidateIndex === index
+      ? {
+          ...entry,
+          body: entry.body || candidate.body,
+          commandOutput: candidate.commandOutput || entry.commandOutput,
+        }
+      : candidate,
+  );
 }
 
 function getThreadStatusLabel(thread: Thread | null) {

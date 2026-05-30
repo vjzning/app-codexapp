@@ -1,10 +1,10 @@
-import type { FileUpdateChange, Thread, ThreadItem, Turn, UserInput } from "@codex-mobile/protocol/v2";
+import type { CommandExecutionRequestApprovalParams, FileUpdateChange, Thread, ThreadItem, Turn, UserInput } from "@codex-mobile/protocol/v2";
 
 export type TimelineEntry = {
   id: string;
   turnId?: string;
   role: "user" | "assistant" | "tool" | "system";
-  variant?: "command";
+  variant?: "command" | "commandGroup";
   title: string;
   metaLabel?: string;
   timestampMs?: number;
@@ -13,6 +13,7 @@ export type TimelineEntry = {
   commandStatus?: "inProgress" | "completed" | "failed" | "declined";
   commandExitCode?: number | null;
   commandOutput?: string;
+  commandEntries?: TimelineEntry[];
   attachments?: TimelineAttachment[];
   fileChanges?: TimelineFileChange[];
   pending?: boolean;
@@ -71,6 +72,24 @@ export function timelineEntryFromThreadItem(
   options: { streaming?: boolean; timestampMs?: number | null; turnDurationMs?: number | null } = {},
 ) {
   return itemToTimelineEntry(turnId, item, undefined, options);
+}
+
+export function timelineEntryFromCommandApproval(params: CommandExecutionRequestApprovalParams): TimelineEntry {
+  const command = params.command?.trim() || "命令";
+
+  return {
+    id: `${params.turnId}:${params.itemId}`,
+    turnId: params.turnId,
+    role: "tool",
+    variant: "command",
+    title: formatCommandExecutionTitle("inProgress", command),
+    timestampMs: params.startedAtMs,
+    body: params.reason ? `等待允许：${params.reason}` : "",
+    commandText: command,
+    commandStatus: "inProgress",
+    commandExitCode: null,
+    commandOutput: "",
+  };
 }
 
 export function appendTimelineBody(body: string, delta: string) {

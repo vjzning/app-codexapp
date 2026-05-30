@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Modal, Platform, Pressable, SafeAreaView, StatusBar as NativeStatusBar, StyleSheet, Text, TextInput, View } from "react-native";
+import { Modal, Platform, Pressable, SafeAreaView, StatusBar as NativeStatusBar, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { FlashList, type FlashListRef } from "@shopify/flash-list";
 
 import type { Thread } from "@codex-mobile/protocol/v2";
@@ -13,7 +13,7 @@ import { DiffModal } from "@/components/thread-detail/DiffModal";
 import { ImagePreviewModal } from "@/components/thread-detail/ImagePreviewModal";
 import { MessageBubble } from "@/components/thread-detail/MessageBubble";
 import { CommandOutputModal } from "@/components/thread-detail/CommandOutputModal";
-import { groupCompletedTurnFileChanges } from "@/components/thread-detail/timelineDisplay";
+import { prepareThreadDetailTimeline } from "@/components/thread-detail/timelineDisplay";
 import { UserInputRequestCard } from "@/components/user-input/UserInputRequestCard";
 import { getUserInputTimelineEntryId } from "@/components/user-input/userInputFormat";
 import type { PendingApproval, PendingUserInputRequest } from "@/types/codex";
@@ -72,17 +72,22 @@ export function ThreadDetail({
   const [toolsVisible, setToolsVisible] = useState(false);
   const [commandSheetVisible, setCommandSheetVisible] = useState(false);
   const [shellCommand, setShellCommand] = useState("");
+  const { height: windowHeight } = useWindowDimensions();
   const listRef = useRef<FlashListRef<TimelineEntry>>(null);
   const inputRef = useRef<TextInput>(null);
   const isNearBottomRef = useRef(true);
   const approvalEntryId = useMemo(() => getApprovalTimelineEntryId(approval), [approval]);
-  const listData = useMemo(() => groupCompletedTurnFileChanges(timeline, { preserveEntryId: approvalEntryId }), [approvalEntryId, timeline]);
-  const approvalIsInTimeline = useMemo(() => Boolean(approvalEntryId && listData.some((entry) => entry.id === approvalEntryId)), [approvalEntryId, listData]);
   const userInputEntryId = useMemo(() => getUserInputTimelineEntryId(userInputRequest), [userInputRequest]);
+  const listData = useMemo(
+    () => prepareThreadDetailTimeline(timeline, { preserveEntryIds: [approvalEntryId, userInputEntryId] }),
+    [approvalEntryId, timeline, userInputEntryId],
+  );
+  const approvalIsInTimeline = useMemo(() => Boolean(approvalEntryId && listData.some((entry) => entry.id === approvalEntryId)), [approvalEntryId, listData]);
   const userInputIsInTimeline = useMemo(
     () => Boolean(userInputEntryId && listData.some((entry) => entry.id === userInputEntryId)),
     [userInputEntryId, listData],
   );
+  const emptyStateMinHeight = Math.max(260, windowHeight - 280);
 
   useEffect(() => {
     if (!isDraft) {
@@ -225,14 +230,18 @@ export function ThreadDetail({
         ItemSeparatorComponent={MessageSeparator}
         ListEmptyComponent={
           isDraft ? (
-            <View style={styles.draftEmpty}>
+            <View style={[styles.emptyState, { minHeight: emptyStateMinHeight }]}>
               <Text style={styles.draftTitle}>新会话</Text>
               <Text style={styles.draftText}>直接输入第一条消息开始。</Text>
             </View>
           ) : isLoading ? (
-            <Text style={styles.empty}>正在加载会话消息...</Text>
+            <View style={[styles.emptyState, { minHeight: emptyStateMinHeight }]}>
+              <Text style={styles.empty}>正在加载会话消息...</Text>
+            </View>
           ) : (
-            <Text style={styles.empty}>暂无消息明细</Text>
+            <View style={[styles.emptyState, { minHeight: emptyStateMinHeight }]}>
+              <Text style={styles.empty}>暂无消息明细</Text>
+            </View>
           )
         }
         ListHeaderComponent={
@@ -450,12 +459,13 @@ const styles = StyleSheet.create({
   empty: {
     color: "#6b7788",
     fontSize: 13,
+    textAlign: "center",
   },
-  draftEmpty: {
+  emptyState: {
     alignItems: "center",
+    justifyContent: "center",
     gap: 8,
     paddingHorizontal: 24,
-    paddingTop: 120,
   },
   draftTitle: {
     color: "#182230",

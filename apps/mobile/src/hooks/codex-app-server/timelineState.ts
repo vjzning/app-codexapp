@@ -62,6 +62,46 @@ export function isSameTimeline(current: TimelineEntry[], next: TimelineEntry[]) 
   return true;
 }
 
+export function mergeTimelineSnapshot(current: TimelineEntry[], snapshot: TimelineEntry[]) {
+  const snapshotTurnIds = new Set(snapshot.map((entry) => entry.turnId).filter(Boolean));
+  const snapshotIds = new Set(snapshot.map((entry) => entry.id));
+  const olderLoadedEntries = current.filter((entry) => entry.turnId && !snapshotTurnIds.has(entry.turnId));
+  const missingToolEntries = current.filter((entry) => shouldPreserveMissingToolEntry(entry) && !snapshotIds.has(entry.id));
+  const mergedSnapshot = [...olderLoadedEntries, ...snapshot];
+
+  if (missingToolEntries.length === 0) {
+    return mergedSnapshot;
+  }
+
+  return missingToolEntries.reduce((next, entry) => insertEntryAfterTurn(next, entry), mergedSnapshot);
+}
+
+function shouldPreserveMissingToolEntry(entry: TimelineEntry) {
+  // 历史快照不返回 commandExecution 时，只保留仍在运行的实时命令，避免文件变更成为“当前页有、重进消失”的本地幽灵项。
+  return entry.variant === "command" && entry.commandStatus === "inProgress";
+}
+
+function insertEntryAfterTurn(entries: TimelineEntry[], entry: TimelineEntry) {
+  if (!entry.turnId) {
+    return [...entries, entry];
+  }
+
+  let insertIndex = -1;
+
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    if (entries[index]?.turnId === entry.turnId) {
+      insertIndex = index + 1;
+      break;
+    }
+  }
+
+  if (insertIndex === -1) {
+    return [...entries, entry];
+  }
+
+  return [...entries.slice(0, insertIndex), entry, ...entries.slice(insertIndex)];
+}
+
 export function clearDeltaTimer(bufferRef: React.MutableRefObject<DeltaBuffer>) {
   if (!bufferRef.current.timer) {
     return;
@@ -121,7 +161,20 @@ export function appendCommandOutputDelta(current: TimelineEntry[], turnId: strin
   const index = current.findIndex((entry) => entry.id === entryId);
 
   if (index === -1) {
-    return current;
+    const entry: TimelineEntry = {
+      id: entryId,
+      turnId,
+      role: "tool",
+      variant: "command",
+      title: "正在运行 命令",
+      body: appendTimelineBody("", delta),
+      commandText: "命令",
+      commandStatus: "inProgress",
+      commandExitCode: null,
+      commandOutput: delta,
+    };
+
+    return [...current, entry];
   }
 
   return current.map((entry, entryIndex) =>
