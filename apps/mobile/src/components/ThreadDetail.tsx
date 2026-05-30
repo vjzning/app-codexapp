@@ -592,9 +592,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     width: 44,
   },
-  toolButtonDisabled: {
-    opacity: 0.5,
-  },
   toolButtonText: {
     color: "#2454d6",
     fontSize: 28,
@@ -612,10 +609,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 11,
     textAlignVertical: "top",
-  },
-  inputDisabled: {
-    backgroundColor: "#eef2f7",
-    color: "#6b7788",
   },
   sendButton: {
     alignItems: "center",
@@ -639,47 +632,10 @@ const styles = StyleSheet.create({
     color: "#ffffff",
     fontWeight: "800",
   },
-  modalBackdrop: {
-    backgroundColor: "rgba(24, 34, 48, 0.28)",
-    flex: 1,
-    justifyContent: "flex-end",
-    padding: 14,
-  },
   modalBackdropEnd: {
     backgroundColor: "rgba(24, 34, 48, 0.28)",
     flex: 1,
     justifyContent: "flex-end",
-  },
-  toolSheet: {
-    backgroundColor: "#ffffff",
-    borderRadius: 18,
-    gap: 8,
-    padding: 14,
-  },
-  toolSheetTitle: {
-    color: "#182230",
-    fontSize: 16,
-    fontWeight: "900",
-    paddingBottom: 4,
-  },
-  toolAction: {
-    backgroundColor: "#f4f7fb",
-    borderColor: "#d8dee8",
-    borderRadius: 12,
-    borderWidth: 1,
-    gap: 3,
-    paddingHorizontal: 12,
-    paddingVertical: 11,
-  },
-  toolActionTitle: {
-    color: "#182230",
-    fontSize: 14,
-    fontWeight: "900",
-  },
-  toolActionText: {
-    color: "#6b7788",
-    fontSize: 12,
-    lineHeight: 17,
   },
   commandSheet: {
     backgroundColor: "#ffffff",
