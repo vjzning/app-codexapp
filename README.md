@@ -109,3 +109,7 @@ CODEX_APP_SERVER_URL=ws://127.0.0.1:4500 pnpm probe:app-server
 ## 注意
 
 这是协议验证版，不直接控制 Codex Desktop App 窗口。它应连接你显式启动的 `codex app-server`。
+
+## License
+
+MIT

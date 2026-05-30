@@ -1,6 +1,12 @@
 {
   "name": "codex-mobile-remote",
   "version": "0.1.0",
+  "description": "Expo mobile client for Codex app-server remote chat.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vjzning/app-codexapp.git"
+  },
   "private": true,
   "packageManager": "pnpm@9.15.2",
   "scripts": {
