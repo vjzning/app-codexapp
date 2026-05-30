@@ -45,6 +45,12 @@
           "android": {
             "buildToolsVersion": "36.0.0",
             "compileSdkVersion": 36,
+            "buildArchs": [
+              "arm64-v8a",
+              "armeabi-v7a"
+            ],
+            "enableMinifyInReleaseBuilds": true,
+            "enableShrinkResourcesInReleaseBuilds": true,
             "targetSdkVersion": 35
           }
         }
