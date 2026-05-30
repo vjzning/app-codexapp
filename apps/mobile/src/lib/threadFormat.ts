@@ -2,6 +2,7 @@ import type { FileUpdateChange, Thread, ThreadItem, Turn, UserInput } from "@cod
 
 export type TimelineEntry = {
   id: string;
+  turnId?: string;
   role: "user" | "assistant" | "tool" | "system";
   variant?: "command";
   title: string;
@@ -86,10 +87,11 @@ function itemToTimelineEntry(
 
   switch (item.type) {
     case "userMessage":
-      return formatUserMessageEntry(entryId, item.content, options.timestampMs);
+      return { ...formatUserMessageEntry(entryId, item.content, options.timestampMs), turnId };
     case "agentMessage":
       return {
         id: entryId,
+        turnId,
         role: "assistant",
         title: "Codex",
         metaLabel: formatDurationMeta(options.turnDurationMs),
@@ -100,6 +102,7 @@ function itemToTimelineEntry(
     case "reasoning":
       return {
         id: entryId,
+        turnId,
         role: "assistant",
         title: "Reasoning",
         timestampMs: options.timestampMs ?? undefined,
@@ -108,6 +111,7 @@ function itemToTimelineEntry(
     case "commandExecution":
       return {
         id: entryId,
+        turnId,
         role: "tool",
         variant: "command",
         title: formatCommandExecutionTitle(item.status, item.command),
@@ -122,6 +126,7 @@ function itemToTimelineEntry(
     case "fileChange":
       return {
         id: entryId,
+        turnId,
         role: "tool",
         title: `已编辑 ${item.changes.length} 个文件`,
         timestampMs: options.timestampMs ?? undefined,
@@ -131,6 +136,7 @@ function itemToTimelineEntry(
     case "plan":
       return {
         id: entryId,
+        turnId,
         role: "assistant",
         title: "Plan",
         timestampMs: options.timestampMs ?? undefined,
@@ -139,6 +145,7 @@ function itemToTimelineEntry(
     case "mcpToolCall":
       return {
         id: entryId,
+        turnId,
         role: "tool",
         title: item.status,
         metaLabel: formatDurationMeta(item.durationMs),
@@ -148,6 +155,7 @@ function itemToTimelineEntry(
     case "dynamicToolCall":
       return {
         id: entryId,
+        turnId,
         role: "tool",
         title: item.status,
         metaLabel: formatDurationMeta(item.durationMs),
@@ -158,6 +166,7 @@ function itemToTimelineEntry(
       return {
         // item.id 在不同 turn 之间不保证全局唯一，时间线 key 必须带上 turnId。
         id: entryId,
+        turnId,
         role: "system",
         title: item.type,
         timestampMs: options.timestampMs ?? undefined,

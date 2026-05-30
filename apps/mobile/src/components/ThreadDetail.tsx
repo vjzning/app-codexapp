@@ -13,6 +13,7 @@ import { DiffModal } from "@/components/thread-detail/DiffModal";
 import { ImagePreviewModal } from "@/components/thread-detail/ImagePreviewModal";
 import { MessageBubble } from "@/components/thread-detail/MessageBubble";
 import { CommandOutputModal } from "@/components/thread-detail/CommandOutputModal";
+import { groupCompletedTurnFileChanges } from "@/components/thread-detail/timelineDisplay";
 import { UserInputRequestCard } from "@/components/user-input/UserInputRequestCard";
 import { getUserInputTimelineEntryId } from "@/components/user-input/userInputFormat";
 import type { PendingApproval, PendingUserInputRequest } from "@/types/codex";
@@ -69,8 +70,8 @@ export function ThreadDetail({
   const listRef = useRef<FlashListRef<TimelineEntry>>(null);
   const inputRef = useRef<TextInput>(null);
   const isNearBottomRef = useRef(true);
-  const listData = useMemo(() => timeline, [timeline]);
   const approvalEntryId = useMemo(() => getApprovalTimelineEntryId(approval), [approval]);
+  const listData = useMemo(() => groupCompletedTurnFileChanges(timeline, { preserveEntryId: approvalEntryId }), [approvalEntryId, timeline]);
   const approvalIsInTimeline = useMemo(() => Boolean(approvalEntryId && listData.some((entry) => entry.id === approvalEntryId)), [approvalEntryId, listData]);
   const userInputEntryId = useMemo(() => getUserInputTimelineEntryId(userInputRequest), [userInputRequest]);
   const userInputIsInTimeline = useMemo(

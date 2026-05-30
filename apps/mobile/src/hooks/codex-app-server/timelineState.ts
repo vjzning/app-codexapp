@@ -123,6 +123,7 @@ function applyAgentMessageDelta(current: TimelineEntry[], turnId: string, itemId
   if (index === -1) {
     const entry: TimelineEntry = {
       id: entryId,
+      turnId,
       role: "assistant",
       title: "Codex",
       body: appendTimelineBody("", delta),

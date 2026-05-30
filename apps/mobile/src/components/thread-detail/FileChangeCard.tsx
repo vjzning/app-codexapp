@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import type { TimelineFileChange } from "@/lib/threadFormat";
@@ -7,10 +8,12 @@ import { formatWorkspaceRelativePath } from "./utils";
 type Props = {
   changes: TimelineFileChange[];
   workspacePath: string;
+  initialVisibleCount?: number;
   onOpenFileChange: (fileChange: TimelineFileChange) => void;
 };
 
-export function FileChangeCard({ changes, workspacePath, onOpenFileChange }: Props) {
+export function FileChangeCard({ changes, workspacePath, initialVisibleCount = 3, onOpenFileChange }: Props) {
+  const [expanded, setExpanded] = useState(false);
   const totals = changes.reduce(
     (next, change) => ({
       additions: next.additions + change.additions,
@@ -19,6 +22,8 @@ export function FileChangeCard({ changes, workspacePath, onOpenFileChange }: Pro
     { additions: 0, deletions: 0 },
   );
   const hasLineStats = totals.additions > 0 || totals.deletions > 0;
+  const visibleChanges = expanded ? changes : changes.slice(0, initialVisibleCount);
+  const hiddenCount = Math.max(0, changes.length - visibleChanges.length);
 
   return (
     <View style={styles.fileCard}>
@@ -35,7 +40,7 @@ export function FileChangeCard({ changes, workspacePath, onOpenFileChange }: Pro
         ) : null}
       </View>
       <View style={styles.fileRows}>
-        {changes.map((change) => (
+        {visibleChanges.map((change) => (
           <Pressable key={change.path} onPress={() => onOpenFileChange(change)} style={styles.fileRow}>
             <Text style={[styles.statusPill, getStatusPillStyle(change.status)]}>{change.kind}</Text>
             <Text numberOfLines={1} style={styles.filePath}>
@@ -50,6 +55,11 @@ export function FileChangeCard({ changes, workspacePath, onOpenFileChange }: Pro
             ) : null}
           </Pressable>
         ))}
+        {hiddenCount > 0 || (expanded && changes.length > initialVisibleCount) ? (
+          <Pressable onPress={() => setExpanded((current) => !current)} style={styles.expandButton}>
+            <Text style={styles.expandText}>{expanded ? "收起" : `展开全部 ${changes.length} 个文件`}</Text>
+          </Pressable>
+        ) : null}
       </View>
     </View>
   );
@@ -142,6 +152,17 @@ const styles = StyleSheet.create({
   },
   rowStats: {
     fontSize: 11,
+    fontWeight: "900",
+  },
+  expandButton: {
+    alignItems: "center",
+    borderTopColor: "#edf1f7",
+    borderTopWidth: 1,
+    paddingVertical: 9,
+  },
+  expandText: {
+    color: "#2454d6",
+    fontSize: 12,
     fontWeight: "900",
   },
   diffAdd: {
