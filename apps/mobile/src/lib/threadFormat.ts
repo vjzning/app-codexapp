@@ -27,6 +27,7 @@ export type TimelineAttachment = {
 
 export type TimelineFileChange = {
   path: string;
+  status: "added" | "deleted" | "updated" | "moved";
   kind: string;
   diff: string;
   additions: number;
@@ -316,6 +317,7 @@ function formatTimelineFileChange(change: FileUpdateChange): TimelineFileChange 
   const stats = countDiffStats(change.diff);
   return {
     path: change.path,
+    status: formatPatchStatus(change),
     kind: formatPatchKind(change),
     diff: change.diff,
     additions: stats.additions,
@@ -345,11 +347,22 @@ function countDiffStats(diff: string) {
 function formatPatchKind(change: FileUpdateChange) {
   switch (change.kind.type) {
     case "add":
-      return "Added";
+      return "新增";
     case "delete":
-      return "Deleted";
+      return "删除";
     case "update":
-      return change.kind.move_path ? `Moved to ${change.kind.move_path}` : "Updated";
+      return change.kind.move_path ? "移动" : "修改";
+  }
+}
+
+function formatPatchStatus(change: FileUpdateChange): TimelineFileChange["status"] {
+  switch (change.kind.type) {
+    case "add":
+      return "added";
+    case "delete":
+      return "deleted";
+    case "update":
+      return change.kind.move_path ? "moved" : "updated";
   }
 }
 
