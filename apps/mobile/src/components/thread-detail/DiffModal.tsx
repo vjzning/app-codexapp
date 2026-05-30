@@ -33,10 +33,7 @@ export function DiffModal({ fileChange, workspacePath, onClose }: Props) {
               <Text numberOfLines={1} style={styles.diffTitle}>
                 {fileChange ? formatWorkspaceRelativePath(fileChange.path, workspacePath) : ""}
               </Text>
-              <Text style={styles.diffSubtitle}>
-                {fileChange?.kind} <Text style={styles.diffAdd}>+{fileChange?.additions ?? 0}</Text>{" "}
-                <Text style={styles.diffDelete}>-{fileChange?.deletions ?? 0}</Text>
-              </Text>
+              {fileChange ? <DiffSubtitle fileChange={fileChange} /> : null}
             </View>
             <Pressable onPress={onClose} style={styles.diffCloseButton}>
               <Text style={styles.diffCloseText}>关闭</Text>
@@ -60,6 +57,24 @@ export function DiffModal({ fileChange, workspacePath, onClose }: Props) {
         </View>
       </View>
     </Modal>
+  );
+}
+
+function DiffSubtitle({ fileChange }: { fileChange: TimelineFileChange }) {
+  const hasLineStats = fileChange.additions > 0 || fileChange.deletions > 0;
+
+  return (
+    <Text style={styles.diffSubtitle}>
+      <Text style={[styles.statusPill, getStatusPillStyle(fileChange.status)]}>{fileChange.kind}</Text>
+      {hasLineStats ? (
+        <>
+          <Text> </Text>
+          <Text style={styles.diffAdd}>+{fileChange.additions}</Text>
+          <Text> </Text>
+          <Text style={styles.diffDelete}>-{fileChange.deletions}</Text>
+        </>
+      ) : null}
+    </Text>
   );
 }
 
@@ -93,6 +108,19 @@ function getDiffTextStyle(line: string) {
   }
 
   return null;
+}
+
+function getStatusPillStyle(status: TimelineFileChange["status"]) {
+  switch (status) {
+    case "added":
+      return styles.statusAdded;
+    case "deleted":
+      return styles.statusDeleted;
+    case "moved":
+      return styles.statusMoved;
+    case "updated":
+      return styles.statusUpdated;
+  }
 }
 
 const styles = StyleSheet.create({
@@ -139,6 +167,30 @@ const styles = StyleSheet.create({
     color: "#9aa4b2",
     fontSize: 12,
     fontWeight: "800",
+  },
+  statusPill: {
+    borderRadius: 999,
+    fontSize: 11,
+    fontWeight: "900",
+    overflow: "hidden",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  statusAdded: {
+    backgroundColor: "#dcfce7",
+    color: "#166534",
+  },
+  statusDeleted: {
+    backgroundColor: "#fee2e2",
+    color: "#991b1b",
+  },
+  statusMoved: {
+    backgroundColor: "#e0f2fe",
+    color: "#075985",
+  },
+  statusUpdated: {
+    backgroundColor: "#eef2ff",
+    color: "#3730a3",
   },
   diffCloseButton: {
     backgroundColor: "#252a30",
