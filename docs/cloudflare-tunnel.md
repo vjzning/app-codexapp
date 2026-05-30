@@ -6,7 +6,7 @@
 
 ```text
 Phone App
-  -> wss://codex-mobile.zaime.me?relay_token=<relay-token>
+  -> wss://your-domain.example.com?relay_token=<relay-token>
   -> Cloudflare Tunnel
   -> http://127.0.0.1:4501
   -> ws://127.0.0.1:4500
@@ -25,7 +25,7 @@ openssl rand -hex 32 > ~/.codex/app-server/relay.token
 ## 2. 日常一键启动
 
 ```bash
-pnpm start:cloudflare
+PUBLIC_CODEX_MOBILE_URL=wss://your-domain.example.com pnpm start:cloudflare
 ```
 
 这个命令会同时启动：
@@ -41,10 +41,10 @@ pnpm start:cloudflare
 URL：
 
 ```text
-wss://codex-mobile.zaime.me?relay_token=<relay-token>
+wss://your-domain.example.com?relay_token=<relay-token>
 ```
 
-Token 输入框留空。`relay_token` 使用 `/Users/ningjiangzhu/.codex/app-server/relay.token` 文件内容。
+Token 输入框留空。`relay_token` 使用 `~/.codex/app-server/relay.token` 文件内容。
 
 ## 4. 自检
 
@@ -57,13 +57,13 @@ curl -i http://127.0.0.1:4501/readyz
 公网验证 Tunnel：
 
 ```bash
-curl -i https://codex-mobile.zaime.me/readyz
+curl -i https://your-domain.example.com/readyz
 ```
 
 WebSocket 验证：
 
 ```bash
-CODEX_APP_SERVER_URL="wss://codex-mobile.zaime.me?relay_token=$(cat /Users/ningjiangzhu/.codex/app-server/relay.token)" \
+CODEX_APP_SERVER_URL="wss://your-domain.example.com?relay_token=$(cat ~/.codex/app-server/relay.token)" \
 node scripts/probe-app-server.mjs
 ```
 
@@ -74,9 +74,9 @@ node scripts/probe-app-server.mjs
 ### 手动启动 relay
 
 ```bash
-RELAY_TOKEN="$(cat /Users/ningjiangzhu/.codex/app-server/relay.token)" \
+RELAY_TOKEN="$(cat ~/.codex/app-server/relay.token)" \
 UPSTREAM_WS_URL=ws://127.0.0.1:4500 \
-UPSTREAM_TOKEN_FILE=/Users/ningjiangzhu/.codex/app-server/mobile.token \
+UPSTREAM_TOKEN_FILE=~/.codex/app-server/mobile.token \
 pnpm relay:cloudflare
 ```
 
@@ -108,7 +108,7 @@ cp docs/cloudflare-tunnel.yml.example ~/.cloudflared/codex-mobile.yml
 然后把域名路由到 Tunnel：
 
 ```bash
-cloudflared tunnel route dns codex-mobile codex-mobile.zaime.me
+cloudflared tunnel route dns codex-mobile your-domain.example.com
 ```
 
 ### 启动 Tunnel

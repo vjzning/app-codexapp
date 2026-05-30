@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Modal, Pressable, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
+import { Image, Modal, Pressable, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { FlashList, type FlashListRef } from "@shopify/flash-list";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
+import * as ImagePicker from "expo-image-picker";
 
-import type { AppInfo, Model, SkillMetadata, Thread } from "@codex-mobile/protocol/v2";
+import type { Model, PluginSummary, SkillMetadata, Thread } from "@codex-mobile/protocol/v2";
 import type { ToolRequestUserInputResponse } from "@codex-mobile/protocol/v2";
 
 import type { TimelineAttachment, TimelineEntry, TimelineFileChange } from "@/lib/threadFormat";
@@ -16,13 +18,11 @@ import { ImagePreviewModal } from "@/components/thread-detail/ImagePreviewModal"
 import { MessageBubble } from "@/components/thread-detail/MessageBubble";
 import { CommandOutputModal } from "@/components/thread-detail/CommandOutputModal";
 import { ThreadActionsModal } from "@/components/thread-detail/ThreadActionsModal";
-import { VoiceInputButton } from "@/components/thread-detail/VoiceInputButton";
 import { prepareThreadDetailTimeline } from "@/components/thread-detail/timelineDisplay";
 import { UserInputRequestCard } from "@/components/user-input/UserInputRequestCard";
 import { getUserInputTimelineEntryId } from "@/components/user-input/userInputFormat";
-import { useVoiceInput } from "@/hooks/useVoiceInput";
 import type { PendingApproval, PendingUserInputRequest } from "@/types/codex";
-import type { ComposerMention } from "@/types/composer";
+import type { ComposerImageAttachment, ComposerMention } from "@/types/composer";
 
 type Props = {
   thread: Thread | null;
@@ -37,9 +37,9 @@ type Props = {
   hasMoreMessages?: boolean;
   approval?: PendingApproval | null;
   userInputRequest?: PendingUserInputRequest | null;
-  apps?: AppInfo[];
   isLoadingPickerData?: boolean;
   models?: Model[];
+  plugins?: PluginSummary[];
   selectedModelId?: string | null;
   skills?: SkillMetadata[];
   onBack: () => void;
@@ -51,7 +51,7 @@ type Props = {
   onRenameThread?: (name: string) => void | Promise<void>;
   onReviewThread?: () => void | Promise<void>;
   onSelectModel?: (modelId: string) => void;
-  onSend: (text: string, mentions?: ComposerMention[]) => void | Promise<void>;
+  onSend: (text: string, mentions?: ComposerMention[], images?: ComposerImageAttachment[]) => void | Promise<void>;
   onRunShellCommand?: (command: string) => void | Promise<void>;
   onInterrupt: () => void;
   onResolveApproval?: (decision: ApprovalDecision) => void;
@@ -71,9 +71,9 @@ export function ThreadDetail({
   hasMoreMessages = false,
   approval = null,
   userInputRequest = null,
-  apps = [],
   isLoadingPickerData = false,
   models = [],
+  plugins = [],
   selectedModelId = null,
   skills = [],
   onBack,
@@ -100,6 +100,8 @@ export function ThreadDetail({
   const [commandSheetVisible, setCommandSheetVisible] = useState(false);
   const [shellCommand, setShellCommand] = useState("");
   const [mentions, setMentions] = useState<ComposerMention[]>([]);
+  const [imageAttachments, setImageAttachments] = useState<ComposerImageAttachment[]>([]);
+  const [imagePickerError, setImagePickerError] = useState<string | null>(null);
   const { height: windowHeight } = useWindowDimensions();
   const listRef = useRef<FlashListRef<TimelineEntry>>(null);
   const inputRef = useRef<TextInput>(null);
@@ -116,13 +118,9 @@ export function ThreadDetail({
     [userInputEntryId, listData],
   );
   const emptyStateMinHeight = Math.max(260, windowHeight - 280);
-  const appendVoiceText = useCallback((text: string) => {
-    // 语音识别只负责产出文本，这里统一追加到 composer，避免语音 hook 依赖 UI 状态。
-    setMessage((current) => `${current}${current.trim().length ? " " : ""}${text}`);
-    setTimeout(() => inputRef.current?.focus(), 80);
-  }, []);
-  const voiceInput = useVoiceInput({ onResult: appendVoiceText });
-
+  const workspacePath = thread?.cwd ?? "";
+  const headerProject = thread ? threadProjectLabel(thread) : "普通会话";
+  const headerTitle = isDraft ? "新会话" : thread ? threadTitle(thread) : "未选择会话";
   useEffect(() => {
     if (!isDraft) {
       return;
@@ -148,22 +146,67 @@ export function ThreadDetail({
     return () => clearTimeout(timer);
   }, [isLoading, isLoadingMore, listData.length]);
 
+  useEffect(() => {
+    setMentions((current) => current.filter((mention) => messageHasMention(message, mention)));
+  }, [message]);
+
   const submit = () => {
-    if (!message.trim()) {
+    if (!message.trim() && !imageAttachments.length) {
       return;
     }
-    void onSend(message, mentions);
+    void onSend(message, mentions, imageAttachments);
     setMessage("");
     setMentions([]);
+    setImageAttachments([]);
+    setImagePickerError(null);
+  };
+
+  const pickImages = async () => {
+    setImagePickerError(null);
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+    if (!permission.granted) {
+      setImagePickerError("没有相册权限，无法选择图片");
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      allowsMultipleSelection: true,
+      mediaTypes: ["images"],
+      quality: 0.9,
+    });
+
+    if (result.canceled) {
+      return;
+    }
+
+    setImageAttachments((current) => [
+      ...current,
+      ...result.assets.map((asset, index) => ({
+        id: `${asset.assetId ?? asset.uri}:${Date.now()}:${index}`,
+        uri: asset.uri,
+        name: getImageName(asset.uri, asset.fileName),
+        mimeType: asset.mimeType ?? guessMimeType(asset.uri),
+        width: asset.width,
+        height: asset.height,
+      })),
+    ]);
+    setToolsVisible(false);
   };
 
   const insertMention = (mention: ComposerMention) => {
-    const marker = mention.type === "skill" ? `$${mention.name}` : `$${mention.id}`;
+    const marker = `$${mention.name}`;
     setMentions((current) =>
       current.some((candidate) => getMentionKey(candidate) === getMentionKey(mention)) ? current : [...current, mention],
     );
     setMessage((current) => `${current}${current.endsWith(" ") || current.length === 0 ? "" : " "}${marker} `);
     setToolsVisible(false);
+    setTimeout(() => inputRef.current?.focus(), 80);
+  };
+
+  const removeMention = (mention: ComposerMention) => {
+    setMentions((current) => current.filter((candidate) => getMentionKey(candidate) !== getMentionKey(mention)));
+    setMessage((current) => removeMentionMarker(current, mention));
     setTimeout(() => inputRef.current?.focus(), 80);
   };
 
@@ -185,7 +228,7 @@ export function ThreadDetail({
   };
 
   const selectedModelLabel = models.find((model) => model.model === selectedModelId)?.displayName ?? selectedModelId;
-  const shouldSteer = isResponding && message.trim().length > 0;
+  const shouldSteer = isResponding && (message.trim().length > 0 || imageAttachments.length > 0);
 
   const handleScroll = useCallback((event: { nativeEvent: { contentOffset: { y: number }; contentSize: { height: number }; layoutMeasurement: { height: number } } }) => {
     const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
@@ -201,7 +244,7 @@ export function ThreadDetail({
         entry={item}
         onOpenAttachment={setSelectedAttachment}
         onOpenCommandOutput={setSelectedCommandEntry}
-        workspacePath={thread?.cwd ?? ""}
+        workspacePath={workspacePath}
         onOpenFileChange={setSelectedFileChange}
         onResolveApproval={onResolveApproval}
         userInputEntryId={userInputEntryId}
@@ -209,12 +252,12 @@ export function ThreadDetail({
         onResolveUserInputRequest={onResolveUserInputRequest}
       />
     ),
-    [approval, approvalEntryId, onResolveApproval, onResolveUserInputRequest, thread?.cwd, userInputEntryId, userInputRequest],
+    [approval, approvalEntryId, onResolveApproval, onResolveUserInputRequest, userInputEntryId, userInputRequest, workspacePath],
   );
 
-  if (!thread) {
+  if (!thread && !isDraft) {
     return (
-      <SafeAreaView style={styles.panel}>
+      <SafeAreaView edges={["left", "right", "bottom"]} style={styles.panel}>
         <View style={styles.topBar}>
           <Pressable onPress={onBack} style={styles.backButton}>
             <Text style={styles.backText}>返回</Text>
@@ -226,30 +269,40 @@ export function ThreadDetail({
   }
 
   return (
-    <SafeAreaView style={styles.panel}>
+    <SafeAreaView edges={["left", "right", "bottom"]} style={styles.panel}>
       <View style={styles.topBar}>
         <Pressable onPress={onBack} style={styles.backButton}>
           <Text style={styles.backText}>‹</Text>
         </Pressable>
         <View style={styles.topMeta}>
           <Text numberOfLines={1} style={styles.project}>
-            {threadProjectLabel(thread)}
+            {headerProject}
           </Text>
           <Text numberOfLines={2} style={styles.title}>
-            {isDraft ? "新会话" : threadTitle(thread)}
+            {headerTitle}
           </Text>
           {statusLabel ? <Text style={styles.statusText}>{statusLabel}</Text> : null}
         </View>
         <View style={styles.headerActions}>
           {onCreateNew ? (
-            <Pressable disabled={isDraft} onPress={onCreateNew} style={[styles.headerActionButton, isDraft && styles.headerActionButtonDisabled]}>
-              <Text style={styles.headerActionText}>新建</Text>
+            <Pressable
+              accessibilityLabel="新建会话"
+              disabled={isDraft}
+              onPress={onCreateNew}
+              style={[styles.headerIconButton, isDraft && styles.headerActionButtonDisabled]}
+            >
+              <Ionicons color="#304052" name="add" size={22} />
             </Pressable>
           ) : null}
-          <Pressable disabled={isRefreshing || isDraft} onPress={onRefresh} style={[styles.headerActionButton, (isRefreshing || isDraft) && styles.headerActionButtonDisabled]}>
-            <Text style={styles.headerActionText}>{isRefreshing ? "..." : "刷新"}</Text>
+          <Pressable
+            accessibilityLabel="刷新会话"
+            disabled={isRefreshing || isDraft || !thread}
+            onPress={onRefresh}
+            style={[styles.headerIconButton, (isRefreshing || isDraft || !thread) && styles.headerActionButtonDisabled]}
+          >
+            <Ionicons color="#304052" name="refresh" size={19} />
           </Pressable>
-          <Pressable disabled={isDraft} onPress={() => setActionsVisible(true)} style={[styles.headerIconButton, isDraft && styles.headerActionButtonDisabled]}>
+          <Pressable disabled={isDraft || !thread} onPress={() => setActionsVisible(true)} style={[styles.headerIconButton, (isDraft || !thread) && styles.headerActionButtonDisabled]}>
             <Text style={styles.headerIconText}>⋯</Text>
           </Pressable>
         </View>
@@ -305,14 +358,14 @@ export function ThreadDetail({
           startRenderingFromBottom: true,
         }}
       />
-      <DiffModal fileChange={selectedFileChange} onClose={() => setSelectedFileChange(null)} workspacePath={thread.cwd} />
+      <DiffModal fileChange={selectedFileChange} onClose={() => setSelectedFileChange(null)} workspacePath={workspacePath} />
       <CommandOutputModal entry={selectedCommandEntry} onClose={() => setSelectedCommandEntry(null)} />
       <ImagePreviewModal attachment={selectedAttachment} onClose={() => setSelectedAttachment(null)} />
       <ComposerToolsModal
-        apps={apps}
         isLoading={isLoadingPickerData}
         models={models}
         onClose={() => setToolsVisible(false)}
+        onPickImages={pickImages}
         onRefresh={() => void onRefreshPickerData?.()}
         onRunCommand={openCommandSheet}
         onSelectMention={insertMention}
@@ -321,12 +374,13 @@ export function ThreadDetail({
           setToolsVisible(false);
         }}
         selectedModelId={selectedModelId}
+        plugins={plugins}
         skills={skills}
         visible={toolsVisible}
       />
       <ThreadActionsModal
         canReview={!isResponding}
-        currentName={threadTitle(thread)}
+        currentName={thread ? threadTitle(thread) : "新会话"}
         isBusy={isRefreshing || isResponding}
         onArchive={() => onArchiveThread?.()}
         onClose={() => setActionsVisible(false)}
@@ -345,19 +399,44 @@ export function ThreadDetail({
       <View style={styles.composerShell}>
         {selectedModelLabel || mentions.length ? (
           <View style={styles.composerMeta}>
-            {selectedModelLabel ? <Text style={styles.composerMetaText}>模型 {selectedModelLabel}</Text> : null}
+            {selectedModelLabel ? (
+              <View style={styles.composerMetaChip}>
+                <Text style={styles.composerMetaText}>模型 {selectedModelLabel}</Text>
+              </View>
+            ) : null}
             {mentions.map((mention) => (
-              <Text key={getMentionKey(mention)} style={styles.composerMetaText}>
-                {mention.type === "skill" ? `$${mention.name}` : `$${mention.id}`}
-              </Text>
+              <Pressable
+                accessibilityLabel={`移除 ${mention.name}`}
+                key={getMentionKey(mention)}
+                onPress={() => removeMention(mention)}
+                style={styles.composerMetaChip}
+              >
+                <Text style={styles.composerMetaText}>${mention.name} ×</Text>
+              </Pressable>
             ))}
           </View>
         ) : null}
+        {imageAttachments.length ? (
+          <View style={styles.imageComposerStrip}>
+            {imageAttachments.map((image) => (
+              <View key={image.id} style={styles.imageComposerItem}>
+                <Image resizeMode="cover" source={{ uri: image.uri }} style={styles.imageComposerThumb} />
+                <Pressable
+                  accessibilityLabel={`移除图片 ${image.name}`}
+                  onPress={() => setImageAttachments((current) => current.filter((candidate) => candidate.id !== image.id))}
+                  style={styles.imageRemoveButton}
+                >
+                  <Ionicons color="#ffffff" name="close" size={14} />
+                </Pressable>
+              </View>
+            ))}
+          </View>
+        ) : null}
+        {imagePickerError ? <Text style={styles.composerErrorText}>{imagePickerError}</Text> : null}
         <View style={styles.composer}>
           <Pressable onPress={() => setToolsVisible(true)} style={styles.toolButton}>
             <Text style={styles.toolButtonText}>+</Text>
           </Pressable>
-          <VoiceInputButton error={voiceInput.error} isListening={voiceInput.isListening} onPress={voiceInput.toggle} partialText={voiceInput.partialText} />
           <TextInput
             ref={inputRef}
             multiline
@@ -367,11 +446,16 @@ export function ThreadDetail({
             value={message}
           />
           <Pressable
+            accessibilityLabel={isResponding && !shouldSteer ? "取消回复" : shouldSteer ? "追加消息" : "发送消息"}
             disabled={isInterrupting}
             onPress={isResponding && !shouldSteer ? onInterrupt : submit}
             style={[styles.sendButton, isResponding && !shouldSteer && styles.cancelButton, shouldSteer && styles.steerButton, isInterrupting && styles.sendButtonDisabled]}
           >
-            <Text style={styles.sendText}>{isInterrupting ? "..." : shouldSteer ? "追加" : isResponding ? "取消" : "发送"}</Text>
+            <Ionicons
+              color="#ffffff"
+              name={isInterrupting ? "hourglass-outline" : shouldSteer ? "arrow-up" : isResponding ? "stop" : "send"}
+              size={19}
+            />
           </Pressable>
         </View>
       </View>
@@ -426,7 +510,45 @@ function ShellCommandModal({
 }
 
 function getMentionKey(mention: ComposerMention) {
-  return mention.type === "skill" ? `skill:${mention.path}` : `app:${mention.id}`;
+  return `skill:${mention.path}`;
+}
+
+function messageHasMention(message: string, mention: ComposerMention) {
+  return new RegExp(`(^|\\s)\\$${escapeRegExp(mention.name)}(?=\\s|$)`).test(message);
+}
+
+function removeMentionMarker(message: string, mention: ComposerMention) {
+  return message.replace(new RegExp(`(^|\\s)\\$${escapeRegExp(mention.name)}(?=\\s|$)`, "g"), " ").replace(/\s+/g, " ").trimStart();
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function getImageName(uri: string, fileName?: string | null) {
+  if (fileName) {
+    return fileName;
+  }
+
+  return decodeURIComponent(uri.split("/").filter(Boolean).at(-1) || "image.jpg").split("?")[0] || "image.jpg";
+}
+
+function guessMimeType(uri: string) {
+  const lower = uri.toLowerCase();
+
+  if (lower.includes(".png")) {
+    return "image/png";
+  }
+
+  if (lower.includes(".webp")) {
+    return "image/webp";
+  }
+
+  if (lower.includes(".gif")) {
+    return "image/gif";
+  }
+
+  return "image/jpeg";
 }
 
 const styles = StyleSheet.create({
@@ -479,10 +601,6 @@ const styles = StyleSheet.create({
   },
   headerActionButtonDisabled: {
     opacity: 0.55,
-  },
-  headerActionText: {
-    color: "#304052",
-    fontWeight: "700",
   },
   headerIconButton: {
     alignItems: "center",
@@ -577,16 +695,54 @@ const styles = StyleSheet.create({
     gap: 8,
     marginBottom: 10,
   },
-  composerMetaText: {
+  composerMetaChip: {
+    alignItems: "center",
     backgroundColor: "#f4f7fb",
     borderColor: "#d8dee8",
     borderRadius: 999,
     borderWidth: 1,
+    flexDirection: "row",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  composerMetaText: {
     color: "#304052",
     fontSize: 12,
     fontWeight: "800",
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+  },
+  imageComposerStrip: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginBottom: 10,
+  },
+  imageComposerItem: {
+    backgroundColor: "#edf1f7",
+    borderRadius: 10,
+    height: 58,
+    overflow: "hidden",
+    width: 58,
+  },
+  imageComposerThumb: {
+    height: 58,
+    width: 58,
+  },
+  imageRemoveButton: {
+    alignItems: "center",
+    backgroundColor: "rgba(24, 34, 48, 0.72)",
+    borderRadius: 999,
+    height: 22,
+    justifyContent: "center",
+    position: "absolute",
+    right: 4,
+    top: 4,
+    width: 22,
+  },
+  composerErrorText: {
+    color: "#b42318",
+    fontSize: 12,
+    fontWeight: "700",
+    marginBottom: 8,
   },
   composer: {
     alignItems: "flex-end",
@@ -625,8 +781,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     height: 44,
     justifyContent: "center",
-    minWidth: 58,
-    paddingHorizontal: 14,
+    width: 44,
   },
   cancelButton: {
     backgroundColor: "#b54708",
@@ -636,10 +791,6 @@ const styles = StyleSheet.create({
   },
   sendButtonDisabled: {
     opacity: 0.6,
-  },
-  sendText: {
-    color: "#ffffff",
-    fontWeight: "800",
   },
   modalBackdropEnd: {
     backgroundColor: "rgba(24, 34, 48, 0.28)",

@@ -1,6 +1,6 @@
 # Codex Mobile Remote
 
-个人自用的 Codex App Server 移动端客户端雏形。它把手机 App 当作一个 Codex UI surface，连接本机 `codex app-server`，用于查看会话、继续发送消息、接收事件和处理审批。
+Codex App Server 移动端客户端。它把手机 App 当作一个 Codex UI surface，连接你显式启动的 `codex app-server`，用于查看会话、继续发送消息、接收事件和处理审批。
 
 ## 目录
 
@@ -29,63 +29,72 @@ pnpm mobile
 pnpm protocol:generate
 ```
 
-## 启动 Codex App Server
+## 一键启动
 
-本机调试：
+### 本地局域网
+
+```bash
+pnpm start:lan
+```
+
+这个命令会同时启动：
+
+- `codex app-server`：监听 `127.0.0.1:4500`
+- 本地 relay：监听 `0.0.0.0:4501`
+- 终端二维码：手机 App 扫码后自动填入 URL 和 relay token
+
+首次运行会自动生成：
+
+```text
+~/.codex/app-server/mobile.token
+~/.codex/app-server/relay.token
+```
+
+手机和电脑必须在同一个 Wi-Fi / 局域网。如果自动识别的 IP 不对，可以手动指定：
+
+```bash
+CODEX_MOBILE_LAN_HOST=192.168.1.23 pnpm start:lan
+```
+
+### 外网 Cloudflare
+
+先创建 Cloudflare Tunnel 配置：
+
+```bash
+mkdir -p ~/.cloudflared
+cp docs/cloudflare-tunnel.yml.example ~/.cloudflared/codex-mobile.yml
+```
+
+把 `~/.cloudflared/codex-mobile.yml` 里的 `tunnel`、`credentials-file`、`hostname` 改成你自己的值，然后启动：
+
+```bash
+PUBLIC_CODEX_MOBILE_URL=wss://your-domain.example.com pnpm start:cloudflare
+```
+
+这个命令会同时启动：
+
+- `codex app-server`：监听 `127.0.0.1:4500`
+- 本地 relay：监听 `127.0.0.1:4501`
+- `cloudflared tunnel`
+- 终端二维码：手机 App 扫码后自动填入公网 URL 和 relay token
+
+公网只暴露 relay，不要直接暴露裸 `4500`。详细配置见 [docs/cloudflare-tunnel.md](docs/cloudflare-tunnel.md)。
+
+## 手动调试
+
+只在本机调试协议时，可以单独启动 app-server：
 
 ```bash
 codex app-server --listen ws://127.0.0.1:4500
 ```
 
-手机通过公网访问时，优先使用 Cloudflare Tunnel 暴露 `4501 relay`，不要直接暴露 `4500`。
-
-本机 `codex app-server` 建议只监听 loopback：
+再用探测脚本验证：
 
 ```bash
-codex app-server --listen ws://127.0.0.1:4500
+CODEX_APP_SERVER_URL=ws://127.0.0.1:4500 pnpm probe:app-server
 ```
 
-非 loopback 监听时建议开启 token 鉴权：
-
-```bash
-mkdir -p ~/.codex/app-server
-openssl rand -hex 32 > ~/.codex/app-server/mobile.token
-codex app-server \
-  --listen ws://100.x.x.x:4500 \
-  --ws-auth capability-token \
-  --ws-token-file ~/.codex/app-server/mobile.token
-```
-
-移动端里填写：
-
-```text
-ws://127.0.0.1:4500
-```
-
-以及 token 文件里的内容。
-
-公网访问请看：
-
-```text
-docs/cloudflare-tunnel.md
-```
-
-如果 iPhone / Expo Go 真机出现 `readyz` 正常但 WebSocket `403 Forbidden`，改用 relay：
-
-```bash
-RELAY_TOKEN=dev-bridge \
-UPSTREAM_WS_URL=ws://100.x.x.x:4500 \
-UPSTREAM_TOKEN_FILE=/Users/ningjiangzhu/.codex/app-server/mobile.token \
-pnpm relay:app-server
-```
-
-移动端填写：
-
-```text
-ws://100.x.x.x:4501?relay_token=<relay-token>
-```
-
-此时 token 输入框留空。relay 会负责给真正的 `codex app-server` 注入 bearer token。
+真机连接建议优先使用 `pnpm start:lan` 或 `pnpm start:cloudflare`，它们会通过 relay 处理 WebSocket token。
 
 ## 当前能力
 

@@ -8,12 +8,13 @@ import { HomeTabs } from "@/components/app-shell/HomeTabs";
 import type { RootTab } from "@/components/app-shell/RootTabBar";
 import { useCodexAppServer } from "@/hooks/useCodexAppServer";
 import type { Thread } from "@codex-mobile/protocol/v2";
+import type { ComposerImageAttachment } from "@/types/composer";
 
 export default function App() {
   const codex = useCodexAppServer();
   const [activeTab, setActiveTab] = useState<RootTab>("threads");
   const [isDraftThread, setIsDraftThread] = useState(false);
-  const isDetailView = Boolean(codex.selectedThread);
+  const isDetailView = Boolean(codex.selectedThread) || isDraftThread;
 
   const openThread = (thread: Thread) => {
     setIsDraftThread(false);
@@ -26,17 +27,16 @@ export default function App() {
   };
 
   const startDraftThread = () => {
+    codex.closeThread();
     setIsDraftThread(true);
   };
 
-  const sendDraftMessage = async (text: string, mentions: Parameters<typeof codex.sendMessage>[1] = []) => {
-    const cwd = codex.selectedThread?.cwd ?? codex.recentCwds[0];
-
-    if (!cwd) {
-      return;
-    }
-
-    await codex.createThread(cwd, text, mentions);
+  const sendDraftMessage = async (
+    text: string,
+    mentions: Parameters<typeof codex.sendMessage>[1] = [],
+    images: ComposerImageAttachment[] = [],
+  ) => {
+    await codex.createThread(null, text, mentions, images);
     setIsDraftThread(false);
   };
 
@@ -47,7 +47,6 @@ export default function App() {
           <StatusBar style="dark" />
           <View style={styles.detailScreen}>
             <ThreadDetail
-              apps={codex.pickerData.apps}
               approval={codex.approval}
               userInputRequest={codex.userInputRequest}
               hasMoreMessages={isDraftThread ? false : codex.hasMoreMessages}
@@ -59,6 +58,7 @@ export default function App() {
               isInterrupting={codex.isInterruptingTurn}
               isResponding={isDraftThread ? codex.isCreatingThread : codex.isResponding}
               models={codex.pickerData.models}
+              plugins={codex.pickerData.plugins}
               selectedModelId={codex.selectedModelId}
               statusLabel={isDraftThread ? "新会话" : codex.statusLabel}
               skills={codex.pickerData.skills}
@@ -89,7 +89,7 @@ export default function App() {
     <SafeAreaProvider>
       <SafeAreaView edges={["top", "bottom"]} style={styles.safeArea}>
         <StatusBar style="dark" />
-        <HomeTabs activeTab={activeTab} codex={codex} onOpenThread={openThread} onTabChange={setActiveTab} />
+        <HomeTabs activeTab={activeTab} codex={codex} onCreateThread={startDraftThread} onOpenThread={openThread} onTabChange={setActiveTab} />
       </SafeAreaView>
     </SafeAreaProvider>
   );

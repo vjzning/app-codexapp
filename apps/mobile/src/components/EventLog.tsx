@@ -14,7 +14,7 @@ type Props = {
 export function EventLog({ events, logs }: Props) {
   return (
     <View style={styles.panel}>
-      <Text style={styles.title}>事件</Text>
+      <Text style={styles.title}>Socket 事件</Text>
       {[...logs.map((line, index) => ({ id: `log:${index}`, method: "client", text: line })), ...events].slice(0, 20).map((event) => (
         <View key={event.id} style={styles.event}>
           <Text style={styles.method}>{event.method}</Text>

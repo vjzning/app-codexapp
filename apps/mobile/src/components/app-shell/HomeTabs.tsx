@@ -13,11 +13,12 @@ import { RootTabBar, type RootTab } from "./RootTabBar";
 type Props = {
   activeTab: RootTab;
   codex: CodexAppServerState;
+  onCreateThread: () => void;
   onOpenThread: (thread: Thread) => void;
   onTabChange: (tab: RootTab) => void;
 };
 
-export function HomeTabs({ activeTab, codex, onOpenThread, onTabChange }: Props) {
+export function HomeTabs({ activeTab, codex, onCreateThread, onOpenThread, onTabChange }: Props) {
   return (
     <View style={styles.shell}>
       <View style={styles.header}>
@@ -41,9 +42,6 @@ export function HomeTabs({ activeTab, codex, onOpenThread, onTabChange }: Props)
             />
             <ApprovalBanner approval={codex.approval} compact onResolve={codex.resolveApproval} />
             <UserInputRequestCard compact request={codex.userInputRequest} onSubmit={codex.resolveUserInputRequest} />
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>连接事件</Text>
-            </View>
             <EventLog events={codex.events} logs={codex.logs} />
           </>
         ) : (
@@ -51,6 +49,7 @@ export function HomeTabs({ activeTab, codex, onOpenThread, onTabChange }: Props)
             <ApprovalBanner approval={codex.approval} compact onResolve={codex.resolveApproval} />
             <UserInputRequestCard compact request={codex.userInputRequest} onSubmit={codex.resolveUserInputRequest} />
             <ThreadList
+              onCreateThread={onCreateThread}
               onOpen={onOpenThread}
               onRefresh={codex.refreshThreads}
               isRefreshing={codex.isRefreshingThreads}
@@ -108,15 +107,5 @@ const styles = StyleSheet.create({
   headerBadgeConnected: {
     backgroundColor: "#dff7e8",
     color: "#19663b",
-  },
-  sectionHeader: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between",
-  },
-  sectionTitle: {
-    color: "#182230",
-    fontSize: 16,
-    fontWeight: "800",
   },
 });

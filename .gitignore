@@ -12,6 +12,8 @@ web-build/
 .env
 .env.*
 !.env.example
+.codex-mobile/
+.idea/
 .DS_Store
 
 # TypeScript / 测试 / 构建产物。

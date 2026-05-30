@@ -16,9 +16,10 @@ type Props = {
 
 const STORAGE_URL_KEY = "codexRemote.appServerUrl";
 const STORAGE_TOKEN_KEY = "codexRemote.appServerToken";
+const DEFAULT_APP_SERVER_URL = "wss://your-domain.example.com";
 
 export function ConnectionPanel({ state, readiness, recentError = null, onConnect, onDisconnect, onProbe }: Props) {
-  const [url, setUrl] = useState("wss://codex-mobile.zaime.me");
+  const [url, setUrl] = useState(DEFAULT_APP_SERVER_URL);
   const [token, setToken] = useState("");
   const [storageStatus, setStorageStatus] = useState<string | null>(null);
   const [scannerVisible, setScannerVisible] = useState(false);
@@ -139,7 +140,7 @@ export function ConnectionPanel({ state, readiness, recentError = null, onConnec
       if (available) {
         await Promise.all([SecureStore.deleteItemAsync(STORAGE_URL_KEY), SecureStore.deleteItemAsync(STORAGE_TOKEN_KEY)]);
       }
-      setUrl("wss://codex-mobile.zaime.me");
+      setUrl(DEFAULT_APP_SERVER_URL);
       setToken("");
       setStorageStatus("已清除保存的连接配置");
     } catch (error) {
@@ -165,13 +166,10 @@ export function ConnectionPanel({ state, readiness, recentError = null, onConnec
         autoCapitalize="none"
         autoCorrect={false}
         onChangeText={setUrl}
-        placeholder="wss://codex-mobile.zaime.me"
+        placeholder={DEFAULT_APP_SERVER_URL}
         style={styles.input}
         value={url}
       />
-      <Text style={styles.hint}>
-        真机公网访问优先填 Cloudflare Tunnel 的 `wss://域名`。局域网 relay 可填 `ws://MacIP:4501`。
-      </Text>
       <TextInput
         autoCapitalize="none"
         autoCorrect={false}
@@ -181,7 +179,6 @@ export function ConnectionPanel({ state, readiness, recentError = null, onConnec
         style={styles.input}
         value={token}
       />
-      <Text style={styles.hint}>relay 模式会自动把 token 拼到 `relay_token` query；直连 `ws://MacIP:4500` 时会改用 Authorization header。</Text>
       {readiness ? (
         <Text style={[styles.readiness, readiness.ok ? styles.readinessOk : styles.readinessError]}>
           {readiness.ok ? `readyz ${readiness.status}` : readiness.error}
@@ -190,7 +187,7 @@ export function ConnectionPanel({ state, readiness, recentError = null, onConnec
       {storageStatus ? <Text style={styles.storageText}>{storageStatus}</Text> : null}
       {recentError ? <Text style={styles.errorText}>{recentError}</Text> : null}
       <Pressable onPress={() => void openScanner()} style={styles.scanButton}>
-        <Text style={styles.scanText}>扫码导入连接配置</Text>
+        <Text style={styles.scanText}>扫码导入</Text>
       </Pressable>
       <View style={styles.actions}>
         <Pressable disabled={isConnecting} onPress={() => void handleConnect()} style={[styles.primaryButton, isConnecting && styles.disabledButton]}>
@@ -277,7 +274,6 @@ function ConnectionQrScannerModal({ visible, onClose, onScanned }: ConnectionQrS
           >
             <View style={styles.scanFrame} />
           </CameraView>
-          <Text style={styles.scannerHint}>扫描 `npm run start:cloudflare` 输出的二维码。</Text>
         </View>
       </View>
     </Modal>
@@ -353,11 +349,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     paddingHorizontal: 12,
     paddingVertical: 10,
-  },
-  hint: {
-    color: "#6b7788",
-    fontSize: 12,
-    lineHeight: 17,
   },
   readiness: {
     borderRadius: 8,
@@ -499,13 +490,5 @@ const styles = StyleSheet.create({
     height: 220,
     marginTop: 70,
     width: 220,
-  },
-  scannerHint: {
-    color: "#6b7788",
-    fontSize: 12,
-    lineHeight: 18,
-    paddingHorizontal: 14,
-    paddingTop: 10,
-    textAlign: "center",
   },
 });

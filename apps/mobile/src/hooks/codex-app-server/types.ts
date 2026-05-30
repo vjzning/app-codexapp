@@ -1,5 +1,5 @@
 import type { TimelineEntry } from "@/lib/threadFormat";
-import type { AppInfo, Model, SkillMetadata } from "@codex-mobile/protocol/v2";
+import type { Model, PluginSummary, SkillMetadata } from "@codex-mobile/protocol/v2";
 
 export type LiveEvent = {
   id: string;
@@ -26,5 +26,5 @@ export type DeltaBuffer = {
 export type PickerData = {
   models: Model[];
   skills: SkillMetadata[];
-  apps: AppInfo[];
+  plugins: PluginSummary[];
 };

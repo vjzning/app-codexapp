@@ -1,4 +1,6 @@
-import { Image, Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { Image, Modal, Pressable, StyleSheet, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import type { TimelineAttachment } from "@/lib/threadFormat";
 
@@ -10,11 +12,18 @@ type Props = {
 };
 
 export function ImagePreviewModal({ attachment, onClose }: Props) {
+  const insets = useSafeAreaInsets();
+
   return (
     <Modal animationType="fade" onRequestClose={onClose} transparent visible={Boolean(attachment)}>
       <View style={styles.imagePreviewBackdrop}>
-        <Pressable onPress={onClose} style={styles.imagePreviewClose}>
-          <Text style={styles.imagePreviewCloseText}>关闭</Text>
+        <Pressable
+          accessibilityLabel="关闭图片预览"
+          hitSlop={10}
+          onPress={onClose}
+          style={[styles.imagePreviewClose, { top: Math.max(insets.top + 12, 32) }]}
+        >
+          <Ionicons color="#ffffff" name="close" size={24} />
         </Pressable>
         {attachment ? <Image resizeMode="contain" source={{ uri: normalizeImageUri(attachment.uri) }} style={styles.imagePreview} /> : null}
       </View>
@@ -36,18 +45,21 @@ const styles = StyleSheet.create({
     width: "100%",
   },
   imagePreviewClose: {
-    backgroundColor: "rgba(255, 255, 255, 0.14)",
+    alignItems: "center",
+    backgroundColor: "rgba(15, 23, 42, 0.72)",
     borderRadius: 999,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.28)",
+    elevation: 10,
+    height: 44,
+    justifyContent: "center",
     position: "absolute",
     right: 16,
-    top: 48,
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.35,
+    shadowRadius: 16,
+    width: 44,
     zIndex: 2,
-  },
-  imagePreviewCloseText: {
-    color: "#ffffff",
-    fontSize: 13,
-    fontWeight: "900",
   },
 });

@@ -10,17 +10,15 @@ import qrcode from "qrcode-terminal";
 
 const mobileTokenFile = process.env.CODEX_APP_SERVER_TOKEN_FILE || homePath(".codex", "app-server", "mobile.token");
 const relayTokenFile = process.env.RELAY_TOKEN_FILE || homePath(".codex", "app-server", "relay.token");
-const cloudflaredConfig = process.env.CLOUDFLARED_CONFIG || homePath(".cloudflared", "codex-mobile.yml");
-const mobileUrl = normalizePublicUrl(process.env.PUBLIC_CODEX_MOBILE_URL || "");
-
+const listenPort = Number(process.env.RELAY_LISTEN_PORT || "4501");
+const publicHost = process.env.CODEX_MOBILE_LAN_HOST || getLanIpAddress();
+const mobileUrl = `ws://${publicHost}:${listenPort}`;
 const children = [];
 
-assertEnv(mobileUrl, "PUBLIC_CODEX_MOBILE_URL");
 await ensureTokenFile(mobileTokenFile, "Codex app-server token");
 await ensureTokenFile(relayTokenFile, "relay token");
-await assertFile(cloudflaredConfig, "cloudflared config");
-await assertPortFree(4500);
-await assertPortFree(4501);
+await assertPortFree(4500, "127.0.0.1");
+await assertPortFree(listenPort, "0.0.0.0");
 
 const relayToken = fs.readFileSync(relayTokenFile, "utf8").trim();
 const mobileConnectionPayload = JSON.stringify({
@@ -45,22 +43,20 @@ start(
   "node",
   ["scripts/app-server-relay.mjs"],
   {
-    RELAY_LISTEN_HOST: "127.0.0.1",
-    RELAY_LISTEN_PORT: "4501",
+    RELAY_LISTEN_HOST: "0.0.0.0",
+    RELAY_LISTEN_PORT: String(listenPort),
     RELAY_TOKEN: relayToken,
     UPSTREAM_WS_URL: "ws://127.0.0.1:4500",
     UPSTREAM_TOKEN_FILE: mobileTokenFile,
   },
 );
 
-start("cloudflared", "cloudflared", ["tunnel", "--config", cloudflaredConfig, "run"]);
-
-console.log("\nCloudflare stack is starting.");
+console.log("\nLAN stack is starting.");
 console.log("Mobile URL:");
 console.log(`${mobileUrl}?relay_token=${relayToken}`);
 console.log("\nScan this QR in the mobile app connection settings:");
 qrcode.generate(mobileConnectionPayload, { small: true });
-console.log("\nPress Ctrl+C to stop all processes.\n");
+console.log("\nKeep your phone and this computer on the same network. Press Ctrl+C to stop.\n");
 
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
@@ -114,39 +110,37 @@ function homePath(...segments) {
   return path.join(os.homedir(), ...segments);
 }
 
-function normalizePublicUrl(value) {
-  return value.trim().replace(/\/+$/, "");
-}
-
-function assertEnv(value, name) {
-  if (!value) {
-    throw new Error(`${name} is required, for example: ${name}=wss://your-domain.example.com`);
-  }
-}
-
-async function assertFile(path, label) {
-  if (!fs.existsSync(path)) {
-    throw new Error(`${label} not found: ${path}`);
-  }
-}
-
 async function ensureTokenFile(filePath, label) {
   if (fs.existsSync(filePath)) {
     return;
   }
 
-  // 首次运行自动生成本地 token，Cloudflare Tunnel 配置仍由用户自己创建。
+  // 首次运行自动生成本地 token，避免开源用户还没配置就启动失败。
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, `${crypto.randomBytes(32).toString("hex")}\n`, { mode: 0o600 });
   console.log(`${label} created: ${filePath}`);
 }
 
-function assertPortFree(port) {
+function getLanIpAddress() {
+  const interfaces = os.networkInterfaces();
+
+  for (const entries of Object.values(interfaces)) {
+    for (const entry of entries || []) {
+      if (entry.family === "IPv4" && !entry.internal) {
+        return entry.address;
+      }
+    }
+  }
+
+  throw new Error("No LAN IPv4 address found. Set CODEX_MOBILE_LAN_HOST manually.");
+}
+
+function assertPortFree(port, host) {
   return new Promise((resolve, reject) => {
     const server = net.createServer();
     server.once("error", (error) => {
       if (error.code === "EADDRINUSE") {
-        reject(new Error(`port ${port} is already in use`));
+        reject(new Error(`port ${host}:${port} is already in use`));
         return;
       }
       reject(error);
@@ -154,7 +148,7 @@ function assertPortFree(port) {
     server.once("listening", () => {
       server.close(() => resolve());
     });
-    server.listen(port, "127.0.0.1");
+    server.listen(port, host);
   });
 }
 

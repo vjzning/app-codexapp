@@ -76,15 +76,15 @@ Expo 启动后用 iOS 模拟器、Android 模拟器或 Expo Go 打开。
 
 ```bash
 RELAY_TOKEN=dev-bridge \
-UPSTREAM_WS_URL=ws://192.168.0.164:4500 \
-UPSTREAM_TOKEN_FILE=/Users/ningjiangzhu/.codex/app-server/mobile.token \
+UPSTREAM_WS_URL=ws://<your-mac-lan-ip>:4500 \
+UPSTREAM_TOKEN_FILE=~/.codex/app-server/mobile.token \
 pnpm relay:app-server
 ```
 
 手机端连接：
 
 ```text
-ws://192.168.0.164:4501?relay_token=dev-bridge
+ws://<your-mac-lan-ip>:4501?relay_token=dev-bridge
 ```
 
 此时 App 里的 token 输入框留空即可。relay 会把 bearer token 注入真正的 `codex app-server`。
@@ -92,7 +92,7 @@ ws://192.168.0.164:4501?relay_token=dev-bridge
 如果要先自检，可在项目根目录执行：
 
 ```bash
-CODEX_APP_SERVER_URL='ws://192.168.0.164:4501?relay_token=dev-bridge' \
+CODEX_APP_SERVER_URL='ws://<your-mac-lan-ip>:4501?relay_token=dev-bridge' \
 node scripts/probe-app-server.mjs
 ```
 

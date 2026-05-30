@@ -3,12 +3,14 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
+import os from "node:os";
+import path from "node:path";
 
 const listenHost = process.env.RELAY_LISTEN_HOST || "0.0.0.0";
 const listenPort = Number(process.env.RELAY_LISTEN_PORT || "4501");
 const relayToken = process.env.RELAY_TOKEN || "";
-const upstreamUrl = new URL(process.env.UPSTREAM_WS_URL || "ws://192.168.0.164:4500");
-const upstreamTokenFile = process.env.UPSTREAM_TOKEN_FILE || "/Users/ningjiangzhu/.codex/app-server/mobile.token";
+const upstreamUrl = new URL(process.env.UPSTREAM_WS_URL || "ws://127.0.0.1:4500");
+const upstreamTokenFile = process.env.UPSTREAM_TOKEN_FILE || path.join(os.homedir(), ".codex", "app-server", "mobile.token");
 const upstreamToken = fs.readFileSync(upstreamTokenFile, "utf8").trim();
 
 const server = http.createServer((req, res) => {

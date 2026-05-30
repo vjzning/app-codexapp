@@ -11,6 +11,7 @@
     "probe:app-server": "node scripts/probe-app-server.mjs",
     "relay:app-server": "node scripts/app-server-relay.mjs",
     "relay:cloudflare": "RELAY_LISTEN_HOST=127.0.0.1 RELAY_LISTEN_PORT=4501 node scripts/app-server-relay.mjs",
+    "start:lan": "node scripts/start-lan-stack.mjs",
     "start:cloudflare": "node scripts/start-cloudflare-stack.mjs",
     "typecheck": "pnpm --filter mobile typecheck",
     "protocol:generate": "codex app-server generate-ts --out packages/protocol/src --experimental"

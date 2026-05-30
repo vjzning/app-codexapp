@@ -36,7 +36,7 @@ export function NewThreadPanel({ defaultCwd = null, recentCwds, isCreating = fal
         autoCapitalize="none"
         autoCorrect={false}
         onChangeText={setCwd}
-        placeholder="/Users/ningjiangzhu/Documents/Codex/..."
+        placeholder="/path/to/workspace"
         style={styles.input}
         value={cwd}
       />

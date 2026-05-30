@@ -1,6 +1,7 @@
 import type {
-  AppsListResponse,
   ModelListResponse,
+  PluginInstalledResponse,
+  PluginSummary,
   ReviewStartResponse,
   SkillsListResponse,
   Thread,
@@ -96,14 +97,26 @@ export async function loadSkills(client: JsonRpcClient, cwd: string | null) {
   return response.data.flatMap((entry) => entry.skills).filter((skill) => skill.enabled);
 }
 
-export async function loadApps(client: JsonRpcClient, threadId: string | null) {
-  const response = await client.request<AppsListResponse>("app/list", {
-    threadId,
-    limit: 50,
-    forceRefetch: false,
+export async function loadInstalledPlugins(client: JsonRpcClient, cwd: string | null) {
+  const response = await client.request<PluginInstalledResponse>("plugin/installed", {
+    cwds: cwd ? [cwd] : undefined,
   });
 
-  return response.data.filter((app) => app.isAccessible && app.isEnabled);
+  const plugins = response.marketplaces.flatMap((marketplace) => marketplace.plugins).filter((plugin) => plugin.installed && plugin.enabled);
+  return dedupePlugins(plugins);
+}
+
+function dedupePlugins(plugins: PluginSummary[]) {
+  const seen = new Set<string>();
+
+  return plugins.filter((plugin) => {
+    if (seen.has(plugin.id)) {
+      return false;
+    }
+
+    seen.add(plugin.id);
+    return true;
+  });
 }
 
 export async function startReview(client: JsonRpcClient, threadId: string) {

@@ -24,6 +24,7 @@ export type TimelineEntry = {
 export type TimelineAttachment = {
   type: "image";
   uri: string;
+  originalUri?: string;
   label: string;
 };
 

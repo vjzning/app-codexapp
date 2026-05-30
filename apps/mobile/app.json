@@ -10,8 +10,7 @@
       "supportsTablet": true,
       "infoPlist": {
         "NSCameraUsageDescription": "用于扫描 Codex Mobile 连接二维码。",
-        "NSMicrophoneUsageDescription": "用于语音输入，将讲话内容转换为文字。",
-        "NSSpeechRecognitionUsageDescription": "用于语音输入，将讲话内容转换为文字。"
+        "NSPhotoLibraryUsageDescription": "用于选择图片发送给 Codex。"
       }
     },
     "android": {
@@ -22,9 +21,11 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "permissions": [
-        "android.permission.CAMERA",
+      "blockedPermissions": [
         "android.permission.RECORD_AUDIO"
+      ],
+      "permissions": [
+        "android.permission.CAMERA"
       ],
       "package": "com.anonymous.mobile"
     },
@@ -38,12 +39,21 @@
           "cameraPermission": "用于扫描 Codex Mobile 连接二维码。"
         }
       ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "buildToolsVersion": "36.0.0",
+            "compileSdkVersion": 36,
+            "targetSdkVersion": 35
+          }
+        }
+      ],
       "expo-secure-store",
       [
-        "@react-native-voice/voice",
+        "expo-image-picker",
         {
-          "microphonePermission": "用于语音输入，将讲话内容转换为文字。",
-          "speechRecognitionPermission": "用于语音输入，将讲话内容转换为文字。"
+          "photosPermission": "用于选择图片发送给 Codex。"
         }
       ]
     ]

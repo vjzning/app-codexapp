@@ -12,12 +12,23 @@ type Props = {
   isRefreshing?: boolean;
   showArchived?: boolean;
   onRestore?: (thread: Thread) => void | Promise<void>;
+  onCreateThread?: () => void;
   onRefresh: () => void;
   onToggleArchived?: () => void | Promise<void>;
   onOpen: (thread: Thread) => void;
 };
 
-export function ThreadList({ threads, selectedThreadId, isRefreshing = false, showArchived = false, onRestore, onRefresh, onToggleArchived, onOpen }: Props) {
+export function ThreadList({
+  threads,
+  selectedThreadId,
+  isRefreshing = false,
+  showArchived = false,
+  onRestore,
+  onCreateThread,
+  onRefresh,
+  onToggleArchived,
+  onOpen,
+}: Props) {
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const [searchTerm, setSearchTerm] = useState("");
   const filteredThreads = useMemo(() => filterThreads(threads, searchTerm), [threads, searchTerm]);
@@ -36,13 +47,28 @@ export function ThreadList({ threads, selectedThreadId, isRefreshing = false, sh
       <View style={styles.header}>
         <Text style={styles.title}>{showArchived ? "归档会话" : "会话"}</Text>
         <View style={styles.headerActions}>
-          {onToggleArchived ? (
-            <Pressable disabled={isRefreshing} onPress={() => void onToggleArchived()} style={[styles.refreshButton, showArchived && styles.archiveModeButton]}>
-              <Text style={styles.refreshText}>{showArchived ? "返回当前" : "归档"}</Text>
+          {!showArchived && onCreateThread ? (
+            <Pressable accessibilityLabel="新建普通会话" onPress={onCreateThread} style={styles.headerIconButton}>
+              <Ionicons color="#304052" name="add" size={21} />
             </Pressable>
           ) : null}
-          <Pressable disabled={isRefreshing} onPress={onRefresh} style={[styles.refreshButton, isRefreshing && styles.refreshButtonDisabled]}>
-            <Text style={styles.refreshText}>{isRefreshing ? "刷新中" : "刷新"}</Text>
+          {onToggleArchived ? (
+            <Pressable
+              accessibilityLabel={showArchived ? "返回当前会话" : "查看归档会话"}
+              disabled={isRefreshing}
+              onPress={() => void onToggleArchived()}
+              style={[styles.headerIconButton, showArchived && styles.archiveModeButton, isRefreshing && styles.refreshButtonDisabled]}
+            >
+              <Ionicons color={showArchived ? "#2454d6" : "#304052"} name={showArchived ? "arrow-back" : "archive-outline"} size={18} />
+            </Pressable>
+          ) : null}
+          <Pressable
+            accessibilityLabel="刷新会话列表"
+            disabled={isRefreshing}
+            onPress={onRefresh}
+            style={[styles.headerIconButton, isRefreshing && styles.refreshButtonDisabled]}
+          >
+            {isRefreshing ? <ActivityIndicator color="#2454d6" size="small" /> : <Ionicons color="#304052" name="refresh" size={18} />}
           </Pressable>
         </View>
       </View>
@@ -217,6 +243,11 @@ function groupThreads(threads: Thread[]) {
 
 function getThreadGroup(thread: Thread) {
   const cwd = (thread.cwd || "").replace(/\\/g, "/");
+
+  if (!cwd) {
+    return { name: "普通会话", kind: "custom" as const, dateKey: null };
+  }
+
   const codexDateDir = cwd.match(/\/Documents\/Codex\/(\d{4}-\d{2}-\d{2})(?=\/|$)/);
 
   if (codexDateDir?.[1]) {
@@ -228,6 +259,11 @@ function getThreadGroup(thread: Thread) {
 
 function formatThreadCwd(cwd: string) {
   const normalized = (cwd || "").replace(/\\/g, "/");
+
+  if (!normalized) {
+    return "普通会话";
+  }
+
   const codexWorkspace = normalized.match(/\/Documents\/Codex\/\d{4}-\d{2}-\d{2}\/(.+)$/);
 
   if (codexWorkspace?.[1]) {
@@ -275,17 +311,15 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "800",
   },
-  refreshButton: {
+  headerIconButton: {
+    alignItems: "center",
     backgroundColor: "#ffffff",
     borderColor: "#d8dee8",
     borderRadius: 999,
     borderWidth: 1,
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-  },
-  refreshText: {
-    color: "#304052",
-    fontWeight: "700",
+    height: 36,
+    justifyContent: "center",
+    width: 36,
   },
   refreshButtonDisabled: {
     opacity: 0.55,

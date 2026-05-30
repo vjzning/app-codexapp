@@ -10,14 +10,14 @@ import type {
 import { JsonRpcClient } from "@/lib/jsonRpcClient";
 import { flattenTurns, timelineEntryFromCommandApproval, type TimelineEntry } from "@/lib/threadFormat";
 import type { ConnectionState, PendingApproval, PendingUserInputRequest, ReadinessStatus } from "@/types/codex";
-import type { ComposerMention } from "@/types/composer";
+import type { ComposerImageAttachment, ComposerMention } from "@/types/composer";
 
 import {
   archiveThread,
   ensureThreadResumed,
   formatReadinessLog,
   getInProgressTurnId,
-  loadApps,
+  loadInstalledPlugins,
   loadModels,
   loadSkills,
   loadThreads,
@@ -29,7 +29,9 @@ import {
   steerTurn,
   unarchiveThread,
 } from "./codex-app-server/api";
-import { buildTurnInput } from "./codex-app-server/composer";
+import { buildPendingMessageBody, buildTurnInput } from "./codex-app-server/composer";
+import { compactRpcError, getErrorMessage } from "./codex-app-server/errorFormat";
+import { applyLocalImageCache, hydrateLocalImageAttachments, uploadComposerImages } from "./codex-app-server/imageTransfer";
 import { handleNotification } from "./codex-app-server/notifications";
 import {
   clearDeltaTimer,
@@ -73,10 +75,11 @@ export function useCodexAppServer() {
   const [pickerData, setPickerData] = useState<PickerData>({
     models: [],
     skills: [],
-    apps: [],
+    plugins: [],
   });
   const [pendingEntries, setPendingEntries] = useState<PendingEntry[]>([]);
   const [recentError, setRecentError] = useState<string | null>(null);
+  const [imageCacheVersion, setImageCacheVersion] = useState(0);
 
   const clientRef = useRef<JsonRpcClient | null>(null);
   const pendingCounterRef = useRef(1);
@@ -89,6 +92,7 @@ export function useCodexAppServer() {
     timer: null,
     chunks: new Map(),
   });
+  const localImageCacheRef = useRef(new Map<string, string>());
 
   const client = useMemo(() => {
     const instance = new JsonRpcClient({
@@ -132,8 +136,8 @@ export function useCodexAppServer() {
   }, []);
 
   const visibleTimeline = useMemo(
-    () => mergePendingEntries(timeline, pendingEntries, selectedThread?.id ?? null),
-    [timeline, pendingEntries, selectedThread?.id],
+    () => applyLocalImageCache(mergePendingEntries(timeline, pendingEntries, selectedThread?.id ?? null), localImageCacheRef.current),
+    [timeline, pendingEntries, selectedThread?.id, imageCacheVersion],
   );
   const recentCwds = useMemo(() => uniqueCwds(threads), [threads]);
 
@@ -176,6 +180,23 @@ export function useCodexAppServer() {
   }, [selectedThread?.id, state]);
 
   useEffect(() => {
+    if (state !== "connected" || !timeline.length) {
+      return;
+    }
+
+    let cancelled = false;
+    void hydrateLocalImageAttachments(client, timeline, localImageCacheRef.current, () => {
+      if (!cancelled) {
+        setImageCacheVersion((current) => current + 1);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [client, state, timeline]);
+
+  useEffect(() => {
     if (state !== "closed" && state !== "error") {
       return;
     }
@@ -207,7 +228,7 @@ export function useCodexAppServer() {
       lastConnectionRef.current = target;
       client.connect(target.socketUrl, target.authToken);
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = getErrorMessage(error);
       lastConnectionRef.current = null;
       setRecentError(message);
       setLogs((current) => [`connect failed: ${message}`, ...current].slice(0, 30));
@@ -258,6 +279,8 @@ export function useCodexAppServer() {
     deltaBufferRef.current.chunks.clear();
     setSelectedThread(null);
     setTimeline([]);
+    localImageCacheRef.current.clear();
+    setImageCacheVersion((current) => current + 1);
     setIsOpeningThread(false);
     setIsLoadingMore(false);
     setIsRefreshingThread(false);
@@ -281,7 +304,7 @@ export function useCodexAppServer() {
         setThreads(data);
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = compactRpcError(error);
       setRecentError(`thread refresh failed: ${message}`);
       setLogs((current) => [`thread refresh failed: ${message}`, ...current].slice(0, 30));
     } finally {
@@ -346,23 +369,24 @@ export function useCodexAppServer() {
     }
   };
 
-  const sendMessage = async (text: string, mentions: ComposerMention[] = []) => {
+  const sendMessage = async (text: string, mentions: ComposerMention[] = [], images: ComposerImageAttachment[] = []) => {
     const trimmed = text.trim();
 
-    if (!selectedThread || !trimmed) {
+    if (!selectedThread || (!trimmed && !images.length)) {
       return;
     }
 
     const sourceThread = selectedThread;
-    const pendingId = addPendingMessage(sourceThread.id, trimmed, countUserText(timeline, trimmed));
+    const pendingBody = buildPendingMessageBody(trimmed, images);
+    const pendingId = addPendingMessage(sourceThread.id, pendingBody, countUserText(timeline, trimmed), images, trimmed);
 
     try {
-      const resumedThread = await sendMessageToThread(sourceThread, trimmed, mentions);
+      const resumedThread = await sendMessageToThread(sourceThread, trimmed, mentions, images);
       if (selectedThreadIdRef.current === sourceThread.id) {
         setSelectedThread(resumedThread);
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = compactRpcError(error);
       setRecentError(`send failed: ${message}`);
       setLogs((current) => [`send failed: ${message}`, ...current].slice(0, 30));
       setPendingEntries((current) =>
@@ -371,9 +395,10 @@ export function useCodexAppServer() {
     }
   };
 
-  const sendMessageToThread = async (thread: Thread, text: string, mentions: ComposerMention[] = []) => {
+  const sendMessageToThread = async (thread: Thread, text: string, mentions: ComposerMention[] = [], images: ComposerImageAttachment[] = []) => {
     const resumedThread = await ensureThreadResumed(client, thread);
-    const input = buildTurnInput(text, mentions);
+    const uploadedImagePaths = await uploadComposerImages(client, resumedThread.cwd, images);
+    const input = buildTurnInput(text, mentions, uploadedImagePaths);
 
     if (activeTurnId && selectedThread?.status.type === "active" && selectedThreadIdRef.current === resumedThread.id) {
       await steerTurn(client, resumedThread.id, activeTurnId, input);
@@ -401,13 +426,19 @@ export function useCodexAppServer() {
         command: trimmed,
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = compactRpcError(error);
       setRecentError(`shell command failed: ${message}`);
       setLogs((current) => [`shell command failed: ${message}`, ...current].slice(0, 30));
     }
   };
 
-  const addPendingMessage = (threadId: string, text: string, baselineCount: number) => {
+  const addPendingMessage = (
+    threadId: string,
+    text: string,
+    baselineCount: number,
+    images: ComposerImageAttachment[] = [],
+    sourceText = text,
+  ) => {
     const pendingId = `pending:${threadId}:${Date.now()}:${pendingCounterRef.current}`;
     pendingCounterRef.current += 1;
 
@@ -418,9 +449,14 @@ export function useCodexAppServer() {
         role: "user",
         title: "You",
         body: text,
+        attachments: images.map((image) => ({
+          type: "image",
+          uri: image.uri,
+          label: "图片",
+        })),
         timestampMs: Date.now(),
         threadId,
-        sourceText: text,
+        sourceText,
         baselineCount,
         pending: true,
       },
@@ -429,11 +465,11 @@ export function useCodexAppServer() {
     return pendingId;
   };
 
-  const createThread = async (cwd: string, message: string, mentions: ComposerMention[] = []) => {
-    const trimmedCwd = cwd.trim();
+  const createThread = async (cwd: string | null, message: string, mentions: ComposerMention[] = [], images: ComposerImageAttachment[] = []) => {
+    const trimmedCwd = cwd?.trim() || null;
     const trimmedMessage = message.trim();
 
-    if (!trimmedCwd || !trimmedMessage || isCreatingThread) {
+    if ((!trimmedMessage && !images.length) || isCreatingThread) {
       return;
     }
 
@@ -452,12 +488,12 @@ export function useCodexAppServer() {
       setSelectedThread(result.thread);
       setTimeline([]);
       setOlderTurnsCursor(null);
-      addPendingMessage(result.thread.id, trimmedMessage, 0);
+      addPendingMessage(result.thread.id, buildPendingMessageBody(trimmedMessage, images), 0, images, trimmedMessage);
 
-      await sendMessageToThread(result.thread, trimmedMessage, mentions);
+      await sendMessageToThread(result.thread, trimmedMessage, mentions, images);
       await openThread(result.thread);
     } catch (error) {
-      const messageText = error instanceof Error ? error.message : String(error);
+      const messageText = compactRpcError(error);
       setRecentError(`create failed: ${messageText}`);
       setLogs((current) => [`create failed: ${messageText}`, ...current].slice(0, 30));
     } finally {
@@ -474,13 +510,33 @@ export function useCodexAppServer() {
 
     try {
       const cwd = selectedThread?.cwd ?? recentCwds[0] ?? null;
-      const [models, skills, apps] = await Promise.all([loadModels(client), loadSkills(client, cwd), loadApps(client, selectedThread?.id ?? null)]);
-      setPickerData({ models, skills, apps });
-      setSelectedModelId((current) => current ?? models.find((model) => model.isDefault)?.model ?? models[0]?.model ?? null);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      setRecentError(`picker refresh failed: ${message}`);
-      setLogs((current) => [`picker refresh failed: ${message}`, ...current].slice(0, 30));
+      const [modelsResult, skillsResult, pluginsResult] = await Promise.allSettled([
+        loadModels(client),
+        loadSkills(client, cwd),
+        loadInstalledPlugins(client, cwd),
+      ]);
+
+      if (modelsResult.status === "rejected") {
+        const message = compactRpcError(modelsResult.reason);
+        setRecentError(`model list failed: ${message}`);
+        setLogs((current) => [`model list failed: ${message}`, ...current].slice(0, 30));
+        return;
+      }
+
+      const skills = skillsResult.status === "fulfilled" ? skillsResult.value : [];
+      const plugins = pluginsResult.status === "fulfilled" ? pluginsResult.value : [];
+      const optionalLogs = [
+        skillsResult.status === "rejected" ? `skills unavailable: ${compactRpcError(skillsResult.reason)}` : null,
+        pluginsResult.status === "rejected" ? `plugins unavailable: ${compactRpcError(pluginsResult.reason)}` : null,
+      ].filter((line): line is string => Boolean(line));
+
+      setPickerData({ models: modelsResult.value, skills, plugins });
+      setSelectedModelId((current) => current ?? modelsResult.value.find((model) => model.isDefault)?.model ?? modelsResult.value[0]?.model ?? null);
+
+      if (optionalLogs.length) {
+        // skills/plugins 是输入框增强能力，加载失败时不影响主连接和会话功能。
+        setLogs((current) => [...optionalLogs, ...current].slice(0, 30));
+      }
     } finally {
       setIsLoadingPickerData(false);
     }
@@ -500,7 +556,7 @@ export function useCodexAppServer() {
       setSelectedThread((current) => (current?.id === threadId ? { ...current, name: trimmed } : current));
       setThreads((current) => current.map((thread) => (thread.id === threadId ? { ...thread, name: trimmed } : thread)));
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = compactRpcError(error);
       setRecentError(`rename failed: ${message}`);
       setLogs((current) => [`rename failed: ${message}`, ...current].slice(0, 30));
     }
@@ -518,7 +574,7 @@ export function useCodexAppServer() {
       setThreads((current) => current.filter((thread) => thread.id !== threadId));
       closeThread();
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = compactRpcError(error);
       setRecentError(`archive failed: ${message}`);
       setLogs((current) => [`archive failed: ${message}`, ...current].slice(0, 30));
     }
@@ -530,7 +586,7 @@ export function useCodexAppServer() {
       setArchivedThreads((current) => current.filter((candidate) => candidate.id !== thread.id));
       setThreads((current) => [response.thread, ...current.filter((candidate) => candidate.id !== response.thread.id)]);
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = compactRpcError(error);
       setRecentError(`unarchive failed: ${message}`);
       setLogs((current) => [`unarchive failed: ${message}`, ...current].slice(0, 30));
     }
@@ -547,7 +603,7 @@ export function useCodexAppServer() {
       setSelectedThread(resumedThread);
       setActiveTurnId(response.turn.id);
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = compactRpcError(error);
       setRecentError(`review failed: ${message}`);
       setLogs((current) => [`review failed: ${message}`, ...current].slice(0, 30));
     }
@@ -584,7 +640,7 @@ export function useCodexAppServer() {
     } catch (error) {
       const result: ReadinessStatus = {
         ok: false,
-        error: error instanceof Error ? error.message : String(error),
+        error: compactRpcError(error),
       };
       setReadiness(result);
       setRecentError(result.error);
@@ -606,7 +662,7 @@ export function useCodexAppServer() {
         turnId: activeTurnId,
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = compactRpcError(error);
       setRecentError(`interrupt failed: ${message}`);
       setLogs((current) => [`interrupt failed: ${message}`, ...current].slice(0, 30));
     } finally {
@@ -650,7 +706,7 @@ export function useCodexAppServer() {
       });
       setPendingEntries((current) => reconcilePendingEntries(current, nextTimeline, threadResponse.thread.id));
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = compactRpcError(error);
       setRecentError(`refresh failed: ${message}`);
       setLogs((current) => [`refresh failed: ${message}`, ...current].slice(0, 30));
     } finally {

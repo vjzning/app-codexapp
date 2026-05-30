@@ -1,4 +1,8 @@
 export function normalizeImageUri(uri: string) {
+  if (uri.startsWith("data:")) {
+    return uri;
+  }
+
   if (uri.startsWith("/") || uri.startsWith("file://")) {
     return uri.startsWith("file://") ? uri : `file://${uri}`;
   }

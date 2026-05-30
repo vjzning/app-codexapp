@@ -63,7 +63,7 @@
 
 实现建议：
 
-- URL 填 `wss://codex-mobile.zaime.me`。
+- URL 填你的 Cloudflare Tunnel 地址，例如 `wss://your-domain.example.com`。
 - Token 输入框填 relay token。
 - 客户端连接时内部组装 `?relay_token=...`，直到 relay 支持更安全的 header/cookie 认证。
 
@@ -290,7 +290,7 @@
 
 目标：
 
-- 给 `codex-mobile.zaime.me` 加 Access。
+- 给你的 Cloudflare Tunnel hostname 加 Access。
 - 只允许用户自己的账号访问。
 
 验收：

@@ -64,7 +64,7 @@ Authorization: Bearer <token>
 - `4500`：只监听 `127.0.0.1`，给本机 relay 使用。
 - `4501`：本地 relay，使用 `relay_token` query 鉴权。
 - Cloudflare Tunnel：只暴露 relay，不暴露裸 app-server。
-- 移动端默认填 `wss://codex-mobile.zaime.me` + relay token。
+- 移动端填写你的 Cloudflare Tunnel 地址，例如 `wss://your-domain.example.com` + relay token。
 
 ## 初始化流程
 
@@ -486,12 +486,12 @@ pnpm mobile
 默认 Expo 地址：
 
 ```text
-exp://192.168.0.164:8097
+exp://<your-mac-lan-ip>:8097
 ```
 
 移动端默认连接：
 
 ```text
-URL: wss://codex-mobile.zaime.me
+URL: wss://your-domain.example.com
 token: ~/.codex/app-server/relay.token 中的 relay token
 ```
