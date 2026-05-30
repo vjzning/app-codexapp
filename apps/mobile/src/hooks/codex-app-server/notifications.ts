@@ -2,7 +2,7 @@ import type { ServerNotification } from "@codex-mobile/protocol";
 import type { Thread, ThreadItem } from "@codex-mobile/protocol/v2";
 
 import { flattenTurns, timelineEntryFromThreadItem, type TimelineEntry } from "@/lib/threadFormat";
-import type { JsonRpcIncoming, PendingApproval } from "@/types/codex";
+import type { JsonRpcIncoming, PendingApproval, PendingUserInputRequest } from "@/types/codex";
 
 import type { DeltaBuffer, LiveEvent } from "./types";
 import { bufferAgentMessageDelta, flushBufferedDeltas, removeBufferedDelta } from "./timelineState";
@@ -16,6 +16,7 @@ type NotificationHandlers = {
   deltaBufferRef: React.MutableRefObject<DeltaBuffer>;
   setActiveTurnId: React.Dispatch<React.SetStateAction<string | null>>;
   setApproval: React.Dispatch<React.SetStateAction<PendingApproval | null>>;
+  setUserInputRequest: React.Dispatch<React.SetStateAction<PendingUserInputRequest | null>>;
 };
 
 export function handleNotification(message: JsonRpcIncoming, handlers: NotificationHandlers) {
@@ -70,6 +71,7 @@ export function handleNotification(message: JsonRpcIncoming, handlers: Notificat
   if (notification.method === "serverRequest/resolved") {
     // 服务端可能因按钮响应、turn 完成或中断主动清掉审批请求，移动端需要同步清理 UI。
     handlers.setApproval((current) => (current?.id === notification.params.requestId ? null : current));
+    handlers.setUserInputRequest((current) => (current?.id === notification.params.requestId ? null : current));
   }
 
   if (notification.method === "turn/started") {

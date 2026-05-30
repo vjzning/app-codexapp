@@ -46,6 +46,7 @@ export default function App() {
         <View style={styles.detailScreen}>
           <ThreadDetail
             approval={codex.approval}
+            userInputRequest={codex.userInputRequest}
             hasMoreMessages={isDraftThread ? false : codex.hasMoreMessages}
             isDraft={isDraftThread}
             isLoading={isDraftThread ? false : codex.isOpeningThread}
@@ -60,6 +61,7 @@ export default function App() {
             onLoadMore={codex.loadOlderMessages}
             onRefresh={codex.refreshSelectedThread}
             onResolveApproval={codex.resolveApproval}
+            onResolveUserInputRequest={codex.resolveUserInputRequest}
             onSend={isDraftThread ? sendDraftMessage : codex.sendMessage}
             thread={codex.selectedThread}
             timeline={isDraftThread ? [] : codex.timeline}

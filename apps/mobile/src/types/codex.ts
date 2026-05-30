@@ -44,3 +44,10 @@ export type PendingApproval = Extract<
       | "applyPatchApproval";
   }
 >;
+
+export type PendingUserInputRequest = Extract<
+  ServerRequest,
+  {
+    method: "item/tool/requestUserInput";
+  }
+>;

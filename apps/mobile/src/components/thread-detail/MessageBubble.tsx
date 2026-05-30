@@ -1,11 +1,13 @@
+import type { ToolRequestUserInputResponse } from "@codex-mobile/protocol/v2";
 import { memo, useState } from "react";
 import * as Clipboard from "expo-clipboard";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { ApprovalCard } from "@/components/approval/ApprovalCard";
 import type { ApprovalDecision } from "@/components/approval/approvalFormat";
+import { UserInputRequestCard } from "@/components/user-input/UserInputRequestCard";
 import type { TimelineAttachment, TimelineEntry, TimelineFileChange } from "@/lib/threadFormat";
-import type { PendingApproval } from "@/types/codex";
+import type { PendingApproval, PendingUserInputRequest } from "@/types/codex";
 
 import { AttachmentGallery } from "./AttachmentGallery";
 import { CommandExecutionCard } from "./CommandExecutionCard";
@@ -17,12 +19,26 @@ type Props = {
   workspacePath: string;
   approval?: PendingApproval | null;
   approvalEntryId?: string | null;
+  userInputRequest?: PendingUserInputRequest | null;
+  userInputEntryId?: string | null;
   onOpenAttachment: (attachment: TimelineAttachment) => void;
   onOpenFileChange: (fileChange: TimelineFileChange) => void;
   onResolveApproval?: (decision: ApprovalDecision) => void;
+  onResolveUserInputRequest?: (response: ToolRequestUserInputResponse) => void;
 };
 
-export const MessageBubble = memo(function MessageBubble({ entry, workspacePath, approval = null, approvalEntryId = null, onOpenAttachment, onOpenFileChange, onResolveApproval }: Props) {
+export const MessageBubble = memo(function MessageBubble({
+  entry,
+  workspacePath,
+  approval = null,
+  approvalEntryId = null,
+  userInputRequest = null,
+  userInputEntryId = null,
+  onOpenAttachment,
+  onOpenFileChange,
+  onResolveApproval,
+  onResolveUserInputRequest,
+}: Props) {
   const [expanded, setExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
   const shouldCollapse = entry.body.length > 1200;
@@ -34,6 +50,7 @@ export const MessageBubble = memo(function MessageBubble({ entry, workspacePath,
   const canCopy = entry.role === "user" && Boolean(entry.body.trim());
   const showBubbleHeader = entry.role !== "user" || Boolean(entry.metaLabel || entry.streaming || entry.pending || entry.failed);
   const matchedApproval = approval && onResolveApproval && approvalEntryId === entry.id ? approval : null;
+  const matchedUserInputRequest = userInputRequest && onResolveUserInputRequest && userInputEntryId === entry.id ? userInputRequest : null;
 
   const copyMessage = async () => {
     if (!canCopy) {
@@ -60,6 +77,9 @@ export const MessageBubble = memo(function MessageBubble({ entry, workspacePath,
       >
         {isCommandCard ? <CommandExecutionCard entry={entry} /> : null}
         {isCommandCard && matchedApproval && onResolveApproval ? <ApprovalCard approval={matchedApproval} onResolve={onResolveApproval} /> : null}
+        {isCommandCard && matchedUserInputRequest && onResolveUserInputRequest ? (
+          <UserInputRequestCard request={matchedUserInputRequest} onSubmit={onResolveUserInputRequest} />
+        ) : null}
         {isToolCard || isCommandCard || !showBubbleHeader ? null : (
           <View style={styles.bubbleHeader}>
             {entry.role !== "user" ? <Text style={styles.bubbleTitle}>{entry.title}</Text> : null}
@@ -74,6 +94,9 @@ export const MessageBubble = memo(function MessageBubble({ entry, workspacePath,
           <>
             <FileChangeCard changes={entry.fileChanges} onOpenFileChange={onOpenFileChange} workspacePath={workspacePath} />
             {matchedApproval && onResolveApproval ? <ApprovalCard approval={matchedApproval} onResolve={onResolveApproval} /> : null}
+            {matchedUserInputRequest && onResolveUserInputRequest ? (
+              <UserInputRequestCard request={matchedUserInputRequest} onSubmit={onResolveUserInputRequest} />
+            ) : null}
           </>
         ) : isCommandCard ? null : (
           <>
@@ -90,6 +113,9 @@ export const MessageBubble = memo(function MessageBubble({ entry, workspacePath,
                   </Pressable>
                 ) : null}
               </View>
+            ) : null}
+            {matchedUserInputRequest && onResolveUserInputRequest ? (
+              <UserInputRequestCard request={matchedUserInputRequest} onSubmit={onResolveUserInputRequest} />
             ) : null}
           </>
         )}

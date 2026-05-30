@@ -1,8 +1,9 @@
 import type { ClientRequest } from "@codex-mobile/protocol";
 import type { CommandExecutionRequestApprovalResponse } from "@codex-mobile/protocol/v2";
 import type { FileChangeRequestApprovalResponse } from "@codex-mobile/protocol/v2";
+import type { ToolRequestUserInputResponse } from "@codex-mobile/protocol/v2";
 
-import type { ConnectionState, JsonRpcId, JsonRpcIncoming, PendingApproval, ReadinessStatus } from "@/types/codex";
+import type { ConnectionState, JsonRpcId, JsonRpcIncoming, PendingApproval, PendingUserInputRequest, ReadinessStatus } from "@/types/codex";
 
 type RequestResult<T> = {
   resolve: (value: T) => void;
@@ -13,6 +14,7 @@ type ClientEvents = {
   onStateChange: (state: ConnectionState) => void;
   onNotification: (message: JsonRpcIncoming) => void;
   onApproval: (request: PendingApproval) => void;
+  onUserInputRequest: (request: PendingUserInputRequest) => void;
   onLog: (line: string) => void;
 };
 
@@ -29,6 +31,7 @@ const APPROVAL_METHODS = new Set([
   "execCommandApproval",
   "applyPatchApproval",
 ]);
+const USER_INPUT_METHODS = new Set(["item/tool/requestUserInput"]);
 const INITIALIZE_TIMEOUT_MS = 8000;
 
 export class JsonRpcClient {
@@ -177,6 +180,22 @@ export class JsonRpcClient {
     );
   }
 
+  async resolveUserInputRequest(request: PendingUserInputRequest, response: ToolRequestUserInputResponse) {
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+      this.markSocketUnavailable("user input attempted while socket is not open");
+      throw new Error("Codex app-server is not connected");
+    }
+
+    // tool/requestUserInput 同样是 server -> client request，必须用原 request id 回包。
+    this.socket.send(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: request.id,
+        result: response,
+      }),
+    );
+  }
+
   private async initialize(socket: WebSocket) {
     try {
       await withTimeout(
@@ -232,6 +251,11 @@ export class JsonRpcClient {
 
       if ("method" in message && APPROVAL_METHODS.has(message.method)) {
         this.events.onApproval(message as PendingApproval);
+        return;
+      }
+
+      if ("method" in message && USER_INPUT_METHODS.has(message.method)) {
+        this.events.onUserInputRequest(message as PendingUserInputRequest);
         return;
       }
 

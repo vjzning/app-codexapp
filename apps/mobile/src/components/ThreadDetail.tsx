@@ -3,6 +3,7 @@ import { Platform, Pressable, SafeAreaView, StatusBar as NativeStatusBar, StyleS
 import { FlashList, type FlashListRef } from "@shopify/flash-list";
 
 import type { Thread } from "@codex-mobile/protocol/v2";
+import type { ToolRequestUserInputResponse } from "@codex-mobile/protocol/v2";
 
 import type { TimelineAttachment, TimelineEntry, TimelineFileChange } from "@/lib/threadFormat";
 import { threadProjectLabel, threadTitle } from "@/lib/threadFormat";
@@ -11,7 +12,9 @@ import { getApprovalTimelineEntryId, type ApprovalDecision } from "@/components/
 import { DiffModal } from "@/components/thread-detail/DiffModal";
 import { ImagePreviewModal } from "@/components/thread-detail/ImagePreviewModal";
 import { MessageBubble } from "@/components/thread-detail/MessageBubble";
-import type { PendingApproval } from "@/types/codex";
+import { UserInputRequestCard } from "@/components/user-input/UserInputRequestCard";
+import { getUserInputTimelineEntryId } from "@/components/user-input/userInputFormat";
+import type { PendingApproval, PendingUserInputRequest } from "@/types/codex";
 
 type Props = {
   thread: Thread | null;
@@ -25,6 +28,7 @@ type Props = {
   statusLabel?: string | null;
   hasMoreMessages?: boolean;
   approval?: PendingApproval | null;
+  userInputRequest?: PendingUserInputRequest | null;
   onBack: () => void;
   onCreateNew?: () => void;
   onLoadMore: () => void;
@@ -32,6 +36,7 @@ type Props = {
   onSend: (text: string) => void | Promise<void>;
   onInterrupt: () => void;
   onResolveApproval?: (decision: ApprovalDecision) => void;
+  onResolveUserInputRequest?: (response: ToolRequestUserInputResponse) => void;
 };
 
 export function ThreadDetail({
@@ -46,6 +51,7 @@ export function ThreadDetail({
   statusLabel = null,
   hasMoreMessages = false,
   approval = null,
+  userInputRequest = null,
   onBack,
   onCreateNew,
   onLoadMore,
@@ -53,6 +59,7 @@ export function ThreadDetail({
   onSend,
   onInterrupt,
   onResolveApproval,
+  onResolveUserInputRequest,
 }: Props) {
   const [message, setMessage] = useState("");
   const [selectedFileChange, setSelectedFileChange] = useState<TimelineFileChange | null>(null);
@@ -63,6 +70,11 @@ export function ThreadDetail({
   const listData = useMemo(() => timeline, [timeline]);
   const approvalEntryId = useMemo(() => getApprovalTimelineEntryId(approval), [approval]);
   const approvalIsInTimeline = useMemo(() => Boolean(approvalEntryId && listData.some((entry) => entry.id === approvalEntryId)), [approvalEntryId, listData]);
+  const userInputEntryId = useMemo(() => getUserInputTimelineEntryId(userInputRequest), [userInputRequest]);
+  const userInputIsInTimeline = useMemo(
+    () => Boolean(userInputEntryId && listData.some((entry) => entry.id === userInputEntryId)),
+    [userInputEntryId, listData],
+  );
 
   useEffect(() => {
     if (!isDraft) {
@@ -113,9 +125,12 @@ export function ThreadDetail({
         workspacePath={thread?.cwd ?? ""}
         onOpenFileChange={setSelectedFileChange}
         onResolveApproval={onResolveApproval}
+        userInputEntryId={userInputEntryId}
+        userInputRequest={userInputRequest}
+        onResolveUserInputRequest={onResolveUserInputRequest}
       />
     ),
-    [approval, approvalEntryId, onResolveApproval, thread?.cwd],
+    [approval, approvalEntryId, onResolveApproval, onResolveUserInputRequest, thread?.cwd, userInputEntryId, userInputRequest],
   );
 
   if (!thread) {
@@ -161,6 +176,11 @@ export function ThreadDetail({
       {approval && onResolveApproval && !approvalIsInTimeline ? (
         <View style={styles.inlineApproval}>
           <ApprovalCard approval={approval} onResolve={onResolveApproval} />
+        </View>
+      ) : null}
+      {userInputRequest && onResolveUserInputRequest && !userInputIsInTimeline ? (
+        <View style={styles.inlineApproval}>
+          <UserInputRequestCard request={userInputRequest} onSubmit={onResolveUserInputRequest} />
         </View>
       ) : null}
 

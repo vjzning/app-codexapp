@@ -5,11 +5,12 @@ import type {
   ThreadListResponse,
   ThreadReadResponse,
   ThreadStartResponse,
+  ToolRequestUserInputResponse,
 } from "@codex-mobile/protocol/v2";
 
 import { JsonRpcClient } from "@/lib/jsonRpcClient";
 import { flattenTurns, type TimelineEntry } from "@/lib/threadFormat";
-import type { ConnectionState, PendingApproval, ReadinessStatus } from "@/types/codex";
+import type { ConnectionState, PendingApproval, PendingUserInputRequest, ReadinessStatus } from "@/types/codex";
 
 import {
   ensureThreadResumed,
@@ -44,6 +45,7 @@ export function useCodexAppServer() {
   const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
   const [events, setEvents] = useState<LiveEvent[]>([]);
   const [approval, setApproval] = useState<PendingApproval | null>(null);
+  const [userInputRequest, setUserInputRequest] = useState<PendingUserInputRequest | null>(null);
   const [readiness, setReadiness] = useState<ReadinessStatus | null>(null);
   const [isOpeningThread, setIsOpeningThread] = useState(false);
   const [isRefreshingThreads, setIsRefreshingThreads] = useState(false);
@@ -75,6 +77,7 @@ export function useCodexAppServer() {
         if (nextState === "closed" || nextState === "error" || nextState === "idle") {
           setActiveTurnId(null);
           setApproval(null);
+          setUserInputRequest(null);
         }
       },
       onNotification: (message) => {
@@ -87,9 +90,11 @@ export function useCodexAppServer() {
           deltaBufferRef,
           setActiveTurnId,
           setApproval,
+          setUserInputRequest,
         });
       },
       onApproval: setApproval,
+      onUserInputRequest: setUserInputRequest,
       onLog: (line) => {
         setLogs((current) => [line, ...current].slice(0, 30));
         if (isErrorLog(line)) {
@@ -399,6 +404,15 @@ export function useCodexAppServer() {
     setApproval(null);
   };
 
+  const resolveUserInputRequest = async (response: ToolRequestUserInputResponse) => {
+    if (!userInputRequest) {
+      return;
+    }
+
+    await client.resolveUserInputRequest(userInputRequest, response);
+    setUserInputRequest(null);
+  };
+
   const probeReadiness = async (url: string, token = "") => {
     try {
       const target = normalizeConnection(url, token);
@@ -496,6 +510,7 @@ export function useCodexAppServer() {
     timeline: visibleTimeline,
     events,
     approval,
+    userInputRequest,
     readiness,
     isOpeningThread,
     isRefreshingThreads,
@@ -518,6 +533,7 @@ export function useCodexAppServer() {
     sendMessage,
     interruptTurn,
     resolveApproval,
+    resolveUserInputRequest,
   };
 }
 

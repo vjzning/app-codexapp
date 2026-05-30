@@ -4,6 +4,7 @@ import { ApprovalBanner } from "@/components/ApprovalBanner";
 import { ConnectionPanel } from "@/components/ConnectionPanel";
 import { EventLog } from "@/components/EventLog";
 import { ThreadList } from "@/components/ThreadList";
+import { UserInputRequestCard } from "@/components/user-input/UserInputRequestCard";
 import type { CodexAppServerState } from "@/hooks/useCodexAppServer";
 import type { Thread } from "@codex-mobile/protocol/v2";
 
@@ -39,6 +40,7 @@ export function HomeTabs({ activeTab, codex, onOpenThread, onTabChange }: Props)
               onProbe={codex.probeReadiness}
             />
             <ApprovalBanner approval={codex.approval} compact onResolve={codex.resolveApproval} />
+            <UserInputRequestCard compact request={codex.userInputRequest} onSubmit={codex.resolveUserInputRequest} />
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>连接事件</Text>
             </View>
@@ -47,6 +49,7 @@ export function HomeTabs({ activeTab, codex, onOpenThread, onTabChange }: Props)
         ) : (
           <>
             <ApprovalBanner approval={codex.approval} compact onResolve={codex.resolveApproval} />
+            <UserInputRequestCard compact request={codex.userInputRequest} onSubmit={codex.resolveUserInputRequest} />
             <ThreadList
               onOpen={onOpenThread}
               onRefresh={codex.refreshThreads}
