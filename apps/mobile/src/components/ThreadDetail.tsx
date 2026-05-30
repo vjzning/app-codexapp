@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Modal, Platform, Pressable, SafeAreaView, StatusBar as NativeStatusBar, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
+import { Modal, Pressable, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { FlashList, type FlashListRef } from "@shopify/flash-list";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 import type { AppInfo, Model, SkillMetadata, Thread } from "@codex-mobile/protocol/v2";
 import type { ToolRequestUserInputResponse } from "@codex-mobile/protocol/v2";
@@ -432,7 +433,6 @@ const styles = StyleSheet.create({
   panel: {
     backgroundColor: "#eaf0f7",
     flex: 1,
-    paddingTop: Platform.OS === "android" ? NativeStatusBar.currentHeight ?? 0 : 0,
   },
   topBar: {
     alignItems: "center",
