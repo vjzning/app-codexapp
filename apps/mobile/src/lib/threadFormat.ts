@@ -10,6 +10,8 @@ export type TimelineEntry = {
   body: string;
   commandText?: string;
   commandStatus?: "inProgress" | "completed" | "failed" | "declined";
+  commandExitCode?: number | null;
+  commandOutput?: string;
   attachments?: TimelineAttachment[];
   fileChanges?: TimelineFileChange[];
   pending?: boolean;
@@ -113,6 +115,8 @@ function itemToTimelineEntry(
         body: formatCommandExecutionOutput(item.aggregatedOutput || ""),
         commandText: item.command,
         commandStatus: item.status,
+        commandExitCode: item.exitCode,
+        commandOutput: item.aggregatedOutput || "",
       };
     case "fileChange":
       return {

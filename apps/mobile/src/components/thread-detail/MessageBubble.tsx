@@ -22,6 +22,7 @@ type Props = {
   userInputRequest?: PendingUserInputRequest | null;
   userInputEntryId?: string | null;
   onOpenAttachment: (attachment: TimelineAttachment) => void;
+  onOpenCommandOutput: (entry: TimelineEntry) => void;
   onOpenFileChange: (fileChange: TimelineFileChange) => void;
   onResolveApproval?: (decision: ApprovalDecision) => void;
   onResolveUserInputRequest?: (response: ToolRequestUserInputResponse) => void;
@@ -35,6 +36,7 @@ export const MessageBubble = memo(function MessageBubble({
   userInputRequest = null,
   userInputEntryId = null,
   onOpenAttachment,
+  onOpenCommandOutput,
   onOpenFileChange,
   onResolveApproval,
   onResolveUserInputRequest,
@@ -75,7 +77,7 @@ export const MessageBubble = memo(function MessageBubble({
           entry.streaming && styles.streamingBubble,
         ]}
       >
-        {isCommandCard ? <CommandExecutionCard entry={entry} /> : null}
+        {isCommandCard ? <CommandExecutionCard entry={entry} onOpenOutput={onOpenCommandOutput} /> : null}
         {isCommandCard && matchedApproval && onResolveApproval ? <ApprovalCard approval={matchedApproval} onResolve={onResolveApproval} /> : null}
         {isCommandCard && matchedUserInputRequest && onResolveUserInputRequest ? (
           <UserInputRequestCard request={matchedUserInputRequest} onSubmit={onResolveUserInputRequest} />

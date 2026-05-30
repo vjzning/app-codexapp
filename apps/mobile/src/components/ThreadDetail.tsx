@@ -12,6 +12,7 @@ import { getApprovalTimelineEntryId, type ApprovalDecision } from "@/components/
 import { DiffModal } from "@/components/thread-detail/DiffModal";
 import { ImagePreviewModal } from "@/components/thread-detail/ImagePreviewModal";
 import { MessageBubble } from "@/components/thread-detail/MessageBubble";
+import { CommandOutputModal } from "@/components/thread-detail/CommandOutputModal";
 import { UserInputRequestCard } from "@/components/user-input/UserInputRequestCard";
 import { getUserInputTimelineEntryId } from "@/components/user-input/userInputFormat";
 import type { PendingApproval, PendingUserInputRequest } from "@/types/codex";
@@ -64,6 +65,7 @@ export function ThreadDetail({
   const [message, setMessage] = useState("");
   const [selectedFileChange, setSelectedFileChange] = useState<TimelineFileChange | null>(null);
   const [selectedAttachment, setSelectedAttachment] = useState<TimelineAttachment | null>(null);
+  const [selectedCommandEntry, setSelectedCommandEntry] = useState<TimelineEntry | null>(null);
   const listRef = useRef<FlashListRef<TimelineEntry>>(null);
   const inputRef = useRef<TextInput>(null);
   const isNearBottomRef = useRef(true);
@@ -122,6 +124,7 @@ export function ThreadDetail({
         approvalEntryId={approvalEntryId}
         entry={item}
         onOpenAttachment={setSelectedAttachment}
+        onOpenCommandOutput={setSelectedCommandEntry}
         workspacePath={thread?.cwd ?? ""}
         onOpenFileChange={setSelectedFileChange}
         onResolveApproval={onResolveApproval}
@@ -220,6 +223,7 @@ export function ThreadDetail({
         }}
       />
       <DiffModal fileChange={selectedFileChange} onClose={() => setSelectedFileChange(null)} workspacePath={thread.cwd} />
+      <CommandOutputModal entry={selectedCommandEntry} onClose={() => setSelectedCommandEntry(null)} />
       <ImagePreviewModal attachment={selectedAttachment} onClose={() => setSelectedAttachment(null)} />
 
       <View style={styles.composer}>
