@@ -2,21 +2,24 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Modal, Platform, Pressable, SafeAreaView, StatusBar as NativeStatusBar, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
 import { FlashList, type FlashListRef } from "@shopify/flash-list";
 
-import type { Thread } from "@codex-mobile/protocol/v2";
+import type { AppInfo, Model, SkillMetadata, Thread } from "@codex-mobile/protocol/v2";
 import type { ToolRequestUserInputResponse } from "@codex-mobile/protocol/v2";
 
 import type { TimelineAttachment, TimelineEntry, TimelineFileChange } from "@/lib/threadFormat";
 import { threadProjectLabel, threadTitle } from "@/lib/threadFormat";
 import { ApprovalCard } from "@/components/approval/ApprovalCard";
 import { getApprovalTimelineEntryId, type ApprovalDecision } from "@/components/approval/approvalFormat";
+import { ComposerToolsModal } from "@/components/thread-detail/ComposerToolsModal";
 import { DiffModal } from "@/components/thread-detail/DiffModal";
 import { ImagePreviewModal } from "@/components/thread-detail/ImagePreviewModal";
 import { MessageBubble } from "@/components/thread-detail/MessageBubble";
 import { CommandOutputModal } from "@/components/thread-detail/CommandOutputModal";
+import { ThreadActionsModal } from "@/components/thread-detail/ThreadActionsModal";
 import { prepareThreadDetailTimeline } from "@/components/thread-detail/timelineDisplay";
 import { UserInputRequestCard } from "@/components/user-input/UserInputRequestCard";
 import { getUserInputTimelineEntryId } from "@/components/user-input/userInputFormat";
 import type { PendingApproval, PendingUserInputRequest } from "@/types/codex";
+import type { ComposerMention } from "@/types/composer";
 
 type Props = {
   thread: Thread | null;
@@ -31,11 +34,21 @@ type Props = {
   hasMoreMessages?: boolean;
   approval?: PendingApproval | null;
   userInputRequest?: PendingUserInputRequest | null;
+  apps?: AppInfo[];
+  isLoadingPickerData?: boolean;
+  models?: Model[];
+  selectedModelId?: string | null;
+  skills?: SkillMetadata[];
   onBack: () => void;
   onCreateNew?: () => void;
+  onArchiveThread?: () => void | Promise<void>;
   onLoadMore: () => void;
   onRefresh: () => void;
-  onSend: (text: string) => void | Promise<void>;
+  onRefreshPickerData?: () => void | Promise<void>;
+  onRenameThread?: (name: string) => void | Promise<void>;
+  onReviewThread?: () => void | Promise<void>;
+  onSelectModel?: (modelId: string) => void;
+  onSend: (text: string, mentions?: ComposerMention[]) => void | Promise<void>;
   onRunShellCommand?: (command: string) => void | Promise<void>;
   onInterrupt: () => void;
   onResolveApproval?: (decision: ApprovalDecision) => void;
@@ -55,10 +68,20 @@ export function ThreadDetail({
   hasMoreMessages = false,
   approval = null,
   userInputRequest = null,
+  apps = [],
+  isLoadingPickerData = false,
+  models = [],
+  selectedModelId = null,
+  skills = [],
   onBack,
   onCreateNew,
+  onArchiveThread,
   onLoadMore,
   onRefresh,
+  onRefreshPickerData,
+  onRenameThread,
+  onReviewThread,
+  onSelectModel,
   onSend,
   onRunShellCommand,
   onInterrupt,
@@ -70,8 +93,10 @@ export function ThreadDetail({
   const [selectedAttachment, setSelectedAttachment] = useState<TimelineAttachment | null>(null);
   const [selectedCommandEntry, setSelectedCommandEntry] = useState<TimelineEntry | null>(null);
   const [toolsVisible, setToolsVisible] = useState(false);
+  const [actionsVisible, setActionsVisible] = useState(false);
   const [commandSheetVisible, setCommandSheetVisible] = useState(false);
   const [shellCommand, setShellCommand] = useState("");
+  const [mentions, setMentions] = useState<ComposerMention[]>([]);
   const { height: windowHeight } = useWindowDimensions();
   const listRef = useRef<FlashListRef<TimelineEntry>>(null);
   const inputRef = useRef<TextInput>(null);
@@ -118,12 +143,17 @@ export function ThreadDetail({
     if (!message.trim()) {
       return;
     }
-    void onSend(message);
+    void onSend(message, mentions);
     setMessage("");
+    setMentions([]);
   };
 
-  const insertMentionShortcut = (shortcut: "$skill" | "$app") => {
-    setMessage((current) => `${current}${current.endsWith(" ") || current.length === 0 ? "" : " "}${shortcut} `);
+  const insertMention = (mention: ComposerMention) => {
+    const marker = mention.type === "skill" ? `$${mention.name}` : `$${mention.id}`;
+    setMentions((current) =>
+      current.some((candidate) => getMentionKey(candidate) === getMentionKey(mention)) ? current : [...current, mention],
+    );
+    setMessage((current) => `${current}${current.endsWith(" ") || current.length === 0 ? "" : " "}${marker} `);
     setToolsVisible(false);
     setTimeout(() => inputRef.current?.focus(), 80);
   };
@@ -144,6 +174,9 @@ export function ThreadDetail({
     setShellCommand("");
     setCommandSheetVisible(false);
   };
+
+  const selectedModelLabel = models.find((model) => model.model === selectedModelId)?.displayName ?? selectedModelId;
+  const shouldSteer = isResponding && message.trim().length > 0;
 
   const handleScroll = useCallback((event: { nativeEvent: { contentOffset: { y: number }; contentSize: { height: number }; layoutMeasurement: { height: number } } }) => {
     const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
@@ -207,6 +240,9 @@ export function ThreadDetail({
           <Pressable disabled={isRefreshing || isDraft} onPress={onRefresh} style={[styles.headerActionButton, (isRefreshing || isDraft) && styles.headerActionButtonDisabled]}>
             <Text style={styles.headerActionText}>{isRefreshing ? "..." : "刷新"}</Text>
           </Pressable>
+          <Pressable disabled={isDraft} onPress={() => setActionsVisible(true)} style={[styles.headerIconButton, isDraft && styles.headerActionButtonDisabled]}>
+            <Text style={styles.headerIconText}>⋯</Text>
+          </Pressable>
         </View>
       </View>
 
@@ -264,11 +300,30 @@ export function ThreadDetail({
       <CommandOutputModal entry={selectedCommandEntry} onClose={() => setSelectedCommandEntry(null)} />
       <ImagePreviewModal attachment={selectedAttachment} onClose={() => setSelectedAttachment(null)} />
       <ComposerToolsModal
+        apps={apps}
+        isLoading={isLoadingPickerData}
+        models={models}
         onClose={() => setToolsVisible(false)}
-        onInsertApp={() => insertMentionShortcut("$app")}
-        onInsertSkill={() => insertMentionShortcut("$skill")}
+        onRefresh={() => void onRefreshPickerData?.()}
         onRunCommand={openCommandSheet}
+        onSelectMention={insertMention}
+        onSelectModel={(modelId) => {
+          onSelectModel?.(modelId);
+          setToolsVisible(false);
+        }}
+        selectedModelId={selectedModelId}
+        skills={skills}
         visible={toolsVisible}
+      />
+      <ThreadActionsModal
+        canReview={!isResponding}
+        currentName={threadTitle(thread)}
+        isBusy={isRefreshing || isResponding}
+        onArchive={() => onArchiveThread?.()}
+        onClose={() => setActionsVisible(false)}
+        onRename={(name) => onRenameThread?.(name)}
+        onReview={() => onReviewThread?.()}
+        visible={actionsVisible}
       />
       <ShellCommandModal
         command={shellCommand}
@@ -278,26 +333,37 @@ export function ThreadDetail({
         visible={commandSheetVisible}
       />
 
-      <View style={styles.composer}>
-        <Pressable disabled={isResponding} onPress={() => setToolsVisible(true)} style={[styles.toolButton, isResponding && styles.toolButtonDisabled]}>
-          <Text style={styles.toolButtonText}>+</Text>
-        </Pressable>
-        <TextInput
-          ref={inputRef}
-          editable={!isResponding}
-          multiline
-          onChangeText={setMessage}
-          placeholder={isDraft ? "输入第一条消息开始新会话" : isResponding ? "等待当前回复结束，或点击取消" : "给当前会话发消息"}
-          style={[styles.input, isResponding && styles.inputDisabled]}
-          value={message}
-        />
-        <Pressable
-          disabled={isInterrupting}
-          onPress={isResponding ? onInterrupt : submit}
-          style={[styles.sendButton, isResponding && styles.cancelButton, isInterrupting && styles.sendButtonDisabled]}
-        >
-          <Text style={styles.sendText}>{isInterrupting ? "..." : isResponding ? "取消" : "发送"}</Text>
-        </Pressable>
+      <View style={styles.composerShell}>
+        {selectedModelLabel || mentions.length ? (
+          <View style={styles.composerMeta}>
+            {selectedModelLabel ? <Text style={styles.composerMetaText}>模型 {selectedModelLabel}</Text> : null}
+            {mentions.map((mention) => (
+              <Text key={getMentionKey(mention)} style={styles.composerMetaText}>
+                {mention.type === "skill" ? `$${mention.name}` : `$${mention.id}`}
+              </Text>
+            ))}
+          </View>
+        ) : null}
+        <View style={styles.composer}>
+          <Pressable onPress={() => setToolsVisible(true)} style={styles.toolButton}>
+            <Text style={styles.toolButtonText}>+</Text>
+          </Pressable>
+          <TextInput
+            ref={inputRef}
+            multiline
+            onChangeText={setMessage}
+            placeholder={isDraft ? "输入第一条消息开始新会话" : isResponding ? "追加指令，或留空点取消" : "给当前会话发消息"}
+            style={styles.input}
+            value={message}
+          />
+          <Pressable
+            disabled={isInterrupting}
+            onPress={isResponding && !shouldSteer ? onInterrupt : submit}
+            style={[styles.sendButton, isResponding && !shouldSteer && styles.cancelButton, shouldSteer && styles.steerButton, isInterrupting && styles.sendButtonDisabled]}
+          >
+            <Text style={styles.sendText}>{isInterrupting ? "..." : shouldSteer ? "追加" : isResponding ? "取消" : "发送"}</Text>
+          </Pressable>
+        </View>
       </View>
     </SafeAreaView>
   );
@@ -305,42 +371,6 @@ export function ThreadDetail({
 
 function MessageSeparator() {
   return <View style={styles.messageSeparator} />;
-}
-
-function ComposerToolsModal({
-  visible,
-  onClose,
-  onRunCommand,
-  onInsertSkill,
-  onInsertApp,
-}: {
-  visible: boolean;
-  onClose: () => void;
-  onRunCommand: () => void;
-  onInsertSkill: () => void;
-  onInsertApp: () => void;
-}) {
-  return (
-    <Modal animationType="fade" onRequestClose={onClose} transparent visible={visible}>
-      <Pressable onPress={onClose} style={styles.modalBackdrop}>
-        <View style={styles.toolSheet}>
-          <Text style={styles.toolSheetTitle}>输入增强</Text>
-          <Pressable onPress={onRunCommand} style={styles.toolAction}>
-            <Text style={styles.toolActionTitle}>运行命令</Text>
-            <Text style={styles.toolActionText}>在当前会话执行 shell command</Text>
-          </Pressable>
-          <Pressable onPress={onInsertSkill} style={styles.toolAction}>
-            <Text style={styles.toolActionTitle}>插入 Skill</Text>
-            <Text style={styles.toolActionText}>快速插入 `$skill` 提及</Text>
-          </Pressable>
-          <Pressable onPress={onInsertApp} style={styles.toolAction}>
-            <Text style={styles.toolActionTitle}>插入 App / 插件</Text>
-            <Text style={styles.toolActionText}>快速插入 `$app` 提及</Text>
-          </Pressable>
-        </View>
-      </Pressable>
-    </Modal>
-  );
 }
 
 function ShellCommandModal({
@@ -383,6 +413,10 @@ function ShellCommandModal({
       </View>
     </Modal>
   );
+}
+
+function getMentionKey(mention: ComposerMention) {
+  return mention.type === "skill" ? `skill:${mention.path}` : `app:${mention.id}`;
 }
 
 const styles = StyleSheet.create({
@@ -440,6 +474,21 @@ const styles = StyleSheet.create({
   headerActionText: {
     color: "#304052",
     fontWeight: "700",
+  },
+  headerIconButton: {
+    alignItems: "center",
+    backgroundColor: "#edf1f7",
+    borderRadius: 999,
+    height: 36,
+    justifyContent: "center",
+    width: 36,
+  },
+  headerIconText: {
+    color: "#304052",
+    fontSize: 24,
+    fontWeight: "700",
+    lineHeight: 24,
+    marginTop: -2,
   },
   project: {
     color: "#2454d6",
@@ -505,16 +554,35 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "700",
   },
-  composer: {
-    alignItems: "flex-end",
+  composerShell: {
     backgroundColor: "#ffffff",
     borderTopColor: "#d8dee8",
     borderTopWidth: 1,
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 14,
+  },
+  composerMeta: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginBottom: 10,
+  },
+  composerMetaText: {
+    backgroundColor: "#f4f7fb",
+    borderColor: "#d8dee8",
+    borderRadius: 999,
+    borderWidth: 1,
+    color: "#304052",
+    fontSize: 12,
+    fontWeight: "800",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  composer: {
+    alignItems: "flex-end",
     flexDirection: "row",
     gap: 10,
-    paddingHorizontal: 12,
-    paddingTop: 12,
-    paddingBottom: 14,
   },
   toolButton: {
     alignItems: "center",
@@ -560,6 +628,9 @@ const styles = StyleSheet.create({
   },
   cancelButton: {
     backgroundColor: "#b54708",
+  },
+  steerButton: {
+    backgroundColor: "#1f7a4d",
   },
   sendButtonDisabled: {
     opacity: 0.6,

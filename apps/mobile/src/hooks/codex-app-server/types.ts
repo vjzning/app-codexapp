@@ -1,4 +1,5 @@
 import type { TimelineEntry } from "@/lib/threadFormat";
+import type { AppInfo, Model, SkillMetadata } from "@codex-mobile/protocol/v2";
 
 export type LiveEvent = {
   id: string;
@@ -20,4 +21,10 @@ export type NormalizedConnection = {
 export type DeltaBuffer = {
   timer: ReturnType<typeof setTimeout> | null;
   chunks: Map<string, { turnId: string; itemId: string; delta: string }>;
+};
+
+export type PickerData = {
+  models: Model[];
+  skills: SkillMetadata[];
+  apps: AppInfo[];
 };

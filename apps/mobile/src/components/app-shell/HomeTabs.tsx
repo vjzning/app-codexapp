@@ -54,8 +54,11 @@ export function HomeTabs({ activeTab, codex, onOpenThread, onTabChange }: Props)
               onOpen={onOpenThread}
               onRefresh={codex.refreshThreads}
               isRefreshing={codex.isRefreshingThreads}
+              onRestore={codex.restoreThread}
+              onToggleArchived={codex.toggleArchivedThreads}
+              showArchived={codex.showArchivedThreads}
               selectedThreadId={codex.selectedThread?.id}
-              threads={codex.threads}
+              threads={codex.displayedThreads}
             />
           </>
         )}

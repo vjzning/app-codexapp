@@ -28,14 +28,14 @@ export default function App() {
     setIsDraftThread(true);
   };
 
-  const sendDraftMessage = async (text: string) => {
+  const sendDraftMessage = async (text: string, mentions: Parameters<typeof codex.sendMessage>[1] = []) => {
     const cwd = codex.selectedThread?.cwd ?? codex.recentCwds[0];
 
     if (!cwd) {
       return;
     }
 
-    await codex.createThread(cwd, text);
+    await codex.createThread(cwd, text, mentions);
     setIsDraftThread(false);
   };
 
@@ -45,24 +45,34 @@ export default function App() {
         <StatusBar style="dark" />
         <View style={styles.detailScreen}>
           <ThreadDetail
+            apps={codex.pickerData.apps}
             approval={codex.approval}
             userInputRequest={codex.userInputRequest}
             hasMoreMessages={isDraftThread ? false : codex.hasMoreMessages}
+            isLoadingPickerData={codex.isLoadingPickerData}
             isDraft={isDraftThread}
             isLoading={isDraftThread ? false : codex.isOpeningThread}
             isLoadingMore={codex.isLoadingMore}
             isRefreshing={codex.isRefreshingThread}
             isInterrupting={codex.isInterruptingTurn}
             isResponding={isDraftThread ? codex.isCreatingThread : codex.isResponding}
+            models={codex.pickerData.models}
+            selectedModelId={codex.selectedModelId}
             statusLabel={isDraftThread ? "新会话" : codex.statusLabel}
+            skills={codex.pickerData.skills}
             onBack={closeThread}
+            onArchiveThread={codex.archiveSelectedThread}
             onCreateNew={startDraftThread}
             onInterrupt={codex.interruptTurn}
             onLoadMore={codex.loadOlderMessages}
             onRefresh={codex.refreshSelectedThread}
+            onRefreshPickerData={codex.refreshPickerData}
+            onRenameThread={codex.renameThread}
+            onReviewThread={codex.startCurrentReview}
             onResolveApproval={codex.resolveApproval}
             onResolveUserInputRequest={codex.resolveUserInputRequest}
             onRunShellCommand={codex.runShellCommand}
+            onSelectModel={codex.setSelectedModelId}
             onSend={isDraftThread ? sendDraftMessage : codex.sendMessage}
             thread={codex.selectedThread}
             timeline={isDraftThread ? [] : codex.timeline}

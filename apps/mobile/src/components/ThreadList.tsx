@@ -10,11 +10,14 @@ type Props = {
   threads: Thread[];
   selectedThreadId?: string;
   isRefreshing?: boolean;
+  showArchived?: boolean;
+  onRestore?: (thread: Thread) => void | Promise<void>;
   onRefresh: () => void;
+  onToggleArchived?: () => void | Promise<void>;
   onOpen: (thread: Thread) => void;
 };
 
-export function ThreadList({ threads, selectedThreadId, isRefreshing = false, onRefresh, onOpen }: Props) {
+export function ThreadList({ threads, selectedThreadId, isRefreshing = false, showArchived = false, onRestore, onRefresh, onToggleArchived, onOpen }: Props) {
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
   const [searchTerm, setSearchTerm] = useState("");
   const filteredThreads = useMemo(() => filterThreads(threads, searchTerm), [threads, searchTerm]);
@@ -31,10 +34,17 @@ export function ThreadList({ threads, selectedThreadId, isRefreshing = false, on
   return (
     <View style={styles.panel}>
       <View style={styles.header}>
-        <Text style={styles.title}>会话</Text>
-        <Pressable disabled={isRefreshing} onPress={onRefresh} style={[styles.refreshButton, isRefreshing && styles.refreshButtonDisabled]}>
-          <Text style={styles.refreshText}>{isRefreshing ? "刷新中" : "刷新"}</Text>
-        </Pressable>
+        <Text style={styles.title}>{showArchived ? "归档会话" : "会话"}</Text>
+        <View style={styles.headerActions}>
+          {onToggleArchived ? (
+            <Pressable disabled={isRefreshing} onPress={() => void onToggleArchived()} style={[styles.refreshButton, showArchived && styles.archiveModeButton]}>
+              <Text style={styles.refreshText}>{showArchived ? "返回当前" : "归档"}</Text>
+            </Pressable>
+          ) : null}
+          <Pressable disabled={isRefreshing} onPress={onRefresh} style={[styles.refreshButton, isRefreshing && styles.refreshButtonDisabled]}>
+            <Text style={styles.refreshText}>{isRefreshing ? "刷新中" : "刷新"}</Text>
+          </Pressable>
+        </View>
       </View>
       <View style={styles.searchBox}>
         <Ionicons color="#8a94a6" name="search" size={17} />
@@ -55,7 +65,7 @@ export function ThreadList({ threads, selectedThreadId, isRefreshing = false, on
       </View>
       {threads.length === 0 ? (
         <View style={styles.emptyState}>
-          <Text style={styles.empty}>{isRefreshing ? "正在加载会话..." : "连接后刷新会话列表"}</Text>
+          <Text style={styles.empty}>{isRefreshing ? "正在加载会话..." : showArchived ? "暂无归档会话" : "连接后刷新会话列表"}</Text>
         </View>
       ) : null}
       {threads.length > 0 && filteredThreads.length === 0 ? (
@@ -80,7 +90,11 @@ export function ThreadList({ threads, selectedThreadId, isRefreshing = false, on
                 : group.threads.map((thread) => {
                   const selected = thread.id === selectedThreadId;
                   return (
-                    <Pressable key={thread.id} onPress={() => onOpen(thread)} style={[styles.thread, selected && styles.threadSelected]}>
+                    <Pressable
+                      key={thread.id}
+                      onPress={() => (showArchived && onRestore ? void onRestore(thread) : onOpen(thread))}
+                      style={[styles.thread, selected && styles.threadSelected]}
+                    >
                       <View style={styles.threadBody}>
                         <View style={styles.threadTopLine}>
                           <Text numberOfLines={1} style={styles.threadTitle}>
@@ -97,6 +111,11 @@ export function ThreadList({ threads, selectedThreadId, isRefreshing = false, on
                           <ThreadStatusIcon thread={thread} />
                         </View>
                       </View>
+                      {showArchived && onRestore ? (
+                        <View style={styles.restorePill}>
+                          <Text style={styles.restoreText}>恢复</Text>
+                        </View>
+                      ) : null}
                     </Pressable>
                   );
                 })}
@@ -247,6 +266,10 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
   },
+  headerActions: {
+    flexDirection: "row",
+    gap: 8,
+  },
   title: {
     color: "#182230",
     fontSize: 18,
@@ -266,6 +289,10 @@ const styles = StyleSheet.create({
   },
   refreshButtonDisabled: {
     opacity: 0.55,
+  },
+  archiveModeButton: {
+    backgroundColor: "#eef4ff",
+    borderColor: "#c7d7fe",
   },
   empty: {
     color: "#6b7788",
@@ -390,5 +417,17 @@ const styles = StyleSheet.create({
   },
   statusIconPlaceholder: {
     width: 22,
+  },
+  restorePill: {
+    backgroundColor: "#eef4ff",
+    borderRadius: 999,
+    marginLeft: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  restoreText: {
+    color: "#2454d6",
+    fontSize: 12,
+    fontWeight: "900",
   },
 });

@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState, type MutableRefObject } from "rea
 
 import type {
   Thread,
-  ThreadListResponse,
   ThreadReadResponse,
   ThreadStartResponse,
   ToolRequestUserInputResponse,
@@ -11,15 +10,26 @@ import type {
 import { JsonRpcClient } from "@/lib/jsonRpcClient";
 import { flattenTurns, timelineEntryFromCommandApproval, type TimelineEntry } from "@/lib/threadFormat";
 import type { ConnectionState, PendingApproval, PendingUserInputRequest, ReadinessStatus } from "@/types/codex";
+import type { ComposerMention } from "@/types/composer";
 
 import {
+  archiveThread,
   ensureThreadResumed,
   formatReadinessLog,
   getInProgressTurnId,
+  loadApps,
+  loadModels,
+  loadSkills,
+  loadThreads,
   loadTurnPage,
   normalizeConnection,
+  setThreadName,
+  startReview,
   startTurn,
+  steerTurn,
+  unarchiveThread,
 } from "./codex-app-server/api";
+import { buildTurnInput } from "./codex-app-server/composer";
 import { handleNotification } from "./codex-app-server/notifications";
 import {
   clearDeltaTimer,
@@ -30,7 +40,7 @@ import {
   reconcilePendingEntries,
   uniqueCwds,
 } from "./codex-app-server/timelineState";
-import type { DeltaBuffer, LiveEvent, NormalizedConnection, PendingEntry } from "./codex-app-server/types";
+import type { DeltaBuffer, LiveEvent, NormalizedConnection, PendingEntry, PickerData } from "./codex-app-server/types";
 
 const DETAIL_REFRESH_INTERVAL_MS = 3000;
 const RECONNECT_BASE_DELAY_MS = 1000;
@@ -42,6 +52,8 @@ export function useCodexAppServer() {
   const [state, setState] = useState<ConnectionState>("idle");
   const [logs, setLogs] = useState<string[]>([]);
   const [threads, setThreads] = useState<Thread[]>([]);
+  const [archivedThreads, setArchivedThreads] = useState<Thread[]>([]);
+  const [showArchivedThreads, setShowArchivedThreads] = useState(false);
   const [selectedThread, setSelectedThread] = useState<Thread | null>(null);
   const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
   const [events, setEvents] = useState<LiveEvent[]>([]);
@@ -54,8 +66,15 @@ export function useCodexAppServer() {
   const [isRefreshingThread, setIsRefreshingThread] = useState(false);
   const [isCreatingThread, setIsCreatingThread] = useState(false);
   const [isInterruptingTurn, setIsInterruptingTurn] = useState(false);
+  const [isLoadingPickerData, setIsLoadingPickerData] = useState(false);
   const [olderTurnsCursor, setOlderTurnsCursor] = useState<string | null>(null);
   const [activeTurnId, setActiveTurnId] = useState<string | null>(null);
+  const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
+  const [pickerData, setPickerData] = useState<PickerData>({
+    models: [],
+    skills: [],
+    apps: [],
+  });
   const [pendingEntries, setPendingEntries] = useState<PendingEntry[]>([]);
   const [recentError, setRecentError] = useState<string | null>(null);
 
@@ -149,6 +168,14 @@ export function useCodexAppServer() {
   }, [state]);
 
   useEffect(() => {
+    if (state !== "connected") {
+      return;
+    }
+
+    void refreshPickerData();
+  }, [selectedThread?.id, state]);
+
+  useEffect(() => {
     if (state !== "closed" && state !== "error") {
       return;
     }
@@ -239,20 +266,20 @@ export function useCodexAppServer() {
     setActiveTurnId(null);
   };
 
-  const refreshThreads = async () => {
+  const refreshThreads = async (options: { archived?: boolean } = {}) => {
     if (isRefreshingThreads) {
       return;
     }
 
     setIsRefreshingThreads(true);
     try {
-      const result = await client.request<ThreadListResponse>("thread/list", {
-        limit: 30,
-        sortKey: "updated_at",
-        sortDirection: "desc",
-        archived: false,
-      });
-      setThreads(result.data);
+      const archived = options.archived ?? showArchivedThreads;
+      const data = await loadThreads(client, archived);
+      if (archived) {
+        setArchivedThreads(data);
+      } else {
+        setThreads(data);
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setRecentError(`thread refresh failed: ${message}`);
@@ -260,6 +287,12 @@ export function useCodexAppServer() {
     } finally {
       setIsRefreshingThreads(false);
     }
+  };
+
+  const toggleArchivedThreads = async () => {
+    const next = !showArchivedThreads;
+    setShowArchivedThreads(next);
+    await refreshThreads({ archived: next });
   };
 
   const openThread = async (thread: Thread) => {
@@ -313,7 +346,7 @@ export function useCodexAppServer() {
     }
   };
 
-  const sendMessage = async (text: string) => {
+  const sendMessage = async (text: string, mentions: ComposerMention[] = []) => {
     const trimmed = text.trim();
 
     if (!selectedThread || !trimmed) {
@@ -324,7 +357,7 @@ export function useCodexAppServer() {
     const pendingId = addPendingMessage(sourceThread.id, trimmed, countUserText(timeline, trimmed));
 
     try {
-      const resumedThread = await sendMessageToThread(sourceThread, trimmed);
+      const resumedThread = await sendMessageToThread(sourceThread, trimmed, mentions);
       if (selectedThreadIdRef.current === sourceThread.id) {
         setSelectedThread(resumedThread);
       }
@@ -338,9 +371,16 @@ export function useCodexAppServer() {
     }
   };
 
-  const sendMessageToThread = async (thread: Thread, text: string) => {
+  const sendMessageToThread = async (thread: Thread, text: string, mentions: ComposerMention[] = []) => {
     const resumedThread = await ensureThreadResumed(client, thread);
-    await startTurn(client, resumedThread.id, text);
+    const input = buildTurnInput(text, mentions);
+
+    if (activeTurnId && selectedThread?.status.type === "active" && selectedThreadIdRef.current === resumedThread.id) {
+      await steerTurn(client, resumedThread.id, activeTurnId, input);
+      return resumedThread;
+    }
+
+    await startTurn(client, resumedThread.id, input, { model: selectedModelId });
     return resumedThread;
   };
 
@@ -389,7 +429,7 @@ export function useCodexAppServer() {
     return pendingId;
   };
 
-  const createThread = async (cwd: string, message: string) => {
+  const createThread = async (cwd: string, message: string, mentions: ComposerMention[] = []) => {
     const trimmedCwd = cwd.trim();
     const trimmedMessage = message.trim();
 
@@ -403,6 +443,7 @@ export function useCodexAppServer() {
     try {
       const result = await client.request<ThreadStartResponse>("thread/start", {
         cwd: trimmedCwd,
+        model: selectedModelId ?? undefined,
         experimentalRawEvents: false,
         persistExtendedHistory: false,
       });
@@ -413,7 +454,7 @@ export function useCodexAppServer() {
       setOlderTurnsCursor(null);
       addPendingMessage(result.thread.id, trimmedMessage, 0);
 
-      await sendMessageToThread(result.thread, trimmedMessage);
+      await sendMessageToThread(result.thread, trimmedMessage, mentions);
       await openThread(result.thread);
     } catch (error) {
       const messageText = error instanceof Error ? error.message : String(error);
@@ -421,6 +462,94 @@ export function useCodexAppServer() {
       setLogs((current) => [`create failed: ${messageText}`, ...current].slice(0, 30));
     } finally {
       setIsCreatingThread(false);
+    }
+  };
+
+  const refreshPickerData = async () => {
+    if (state !== "connected" || isLoadingPickerData) {
+      return;
+    }
+
+    setIsLoadingPickerData(true);
+
+    try {
+      const cwd = selectedThread?.cwd ?? recentCwds[0] ?? null;
+      const [models, skills, apps] = await Promise.all([loadModels(client), loadSkills(client, cwd), loadApps(client, selectedThread?.id ?? null)]);
+      setPickerData({ models, skills, apps });
+      setSelectedModelId((current) => current ?? models.find((model) => model.isDefault)?.model ?? models[0]?.model ?? null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setRecentError(`picker refresh failed: ${message}`);
+      setLogs((current) => [`picker refresh failed: ${message}`, ...current].slice(0, 30));
+    } finally {
+      setIsLoadingPickerData(false);
+    }
+  };
+
+  const renameThread = async (name: string) => {
+    const trimmed = name.trim();
+
+    if (!selectedThread || !trimmed) {
+      return;
+    }
+
+    const threadId = selectedThread.id;
+
+    try {
+      await setThreadName(client, threadId, trimmed);
+      setSelectedThread((current) => (current?.id === threadId ? { ...current, name: trimmed } : current));
+      setThreads((current) => current.map((thread) => (thread.id === threadId ? { ...thread, name: trimmed } : thread)));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setRecentError(`rename failed: ${message}`);
+      setLogs((current) => [`rename failed: ${message}`, ...current].slice(0, 30));
+    }
+  };
+
+  const archiveSelectedThread = async () => {
+    if (!selectedThread) {
+      return;
+    }
+
+    const threadId = selectedThread.id;
+
+    try {
+      await archiveThread(client, threadId);
+      setThreads((current) => current.filter((thread) => thread.id !== threadId));
+      closeThread();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setRecentError(`archive failed: ${message}`);
+      setLogs((current) => [`archive failed: ${message}`, ...current].slice(0, 30));
+    }
+  };
+
+  const restoreThread = async (thread: Thread) => {
+    try {
+      const response = await unarchiveThread(client, thread.id);
+      setArchivedThreads((current) => current.filter((candidate) => candidate.id !== thread.id));
+      setThreads((current) => [response.thread, ...current.filter((candidate) => candidate.id !== response.thread.id)]);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setRecentError(`unarchive failed: ${message}`);
+      setLogs((current) => [`unarchive failed: ${message}`, ...current].slice(0, 30));
+    }
+  };
+
+  const startCurrentReview = async () => {
+    if (!selectedThread || activeTurnId) {
+      return;
+    }
+
+    try {
+      const resumedThread = await ensureThreadResumed(client, selectedThread);
+      const response = await startReview(client, resumedThread.id);
+      setSelectedThread(resumedThread);
+      setActiveTurnId(response.turn.id);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setRecentError(`review failed: ${message}`);
+      setLogs((current) => [`review failed: ${message}`, ...current].slice(0, 30));
     }
   };
 
@@ -536,6 +665,9 @@ export function useCodexAppServer() {
     logs,
     recentError,
     threads,
+    archivedThreads,
+    displayedThreads: showArchivedThreads ? archivedThreads : threads,
+    showArchivedThreads,
     recentCwds,
     selectedThread,
     timeline: visibleTimeline,
@@ -549,6 +681,9 @@ export function useCodexAppServer() {
     isRefreshingThread,
     isCreatingThread,
     isInterruptingTurn,
+    isLoadingPickerData,
+    selectedModelId,
+    pickerData,
     isResponding: Boolean(activeTurnId) || selectedThread?.status.type === "active",
     statusLabel: activeTurnId ? "正在回复..." : getThreadStatusLabel(selectedThread),
     hasMoreMessages: Boolean(olderTurnsCursor),
@@ -557,11 +692,18 @@ export function useCodexAppServer() {
     closeThread,
     probeReadiness,
     refreshThreads,
+    toggleArchivedThreads,
     openThread,
     loadOlderMessages,
     refreshSelectedThread,
+    refreshPickerData,
     createThread,
     sendMessage,
+    setSelectedModelId,
+    renameThread,
+    archiveSelectedThread,
+    restoreThread,
+    startCurrentReview,
     runShellCommand,
     interruptTurn,
     resolveApproval,

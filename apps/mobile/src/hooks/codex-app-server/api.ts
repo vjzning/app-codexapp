@@ -1,9 +1,17 @@
 import type {
+  AppsListResponse,
+  ModelListResponse,
+  ReviewStartResponse,
+  SkillsListResponse,
   Thread,
+  ThreadListResponse,
   ThreadResumeResponse,
   ThreadTurnsListResponse,
+  ThreadUnarchiveResponse,
   Turn,
   TurnStartResponse,
+  TurnSteerResponse,
+  UserInput,
 } from "@codex-mobile/protocol/v2";
 
 import { JsonRpcClient } from "@/lib/jsonRpcClient";
@@ -27,16 +35,82 @@ export async function ensureThreadResumed(client: JsonRpcClient, thread: Thread)
   return resumed.thread;
 }
 
-export async function startTurn(client: JsonRpcClient, threadId: string, text: string) {
+export async function startTurn(client: JsonRpcClient, threadId: string, input: UserInput[], options: { model?: string | null } = {}) {
   await client.request<TurnStartResponse>("turn/start", {
     threadId,
-    input: [
-      {
-        type: "text",
-        text,
-        text_elements: [],
-      },
-    ],
+    model: options.model ?? undefined,
+    input,
+  });
+}
+
+export async function steerTurn(client: JsonRpcClient, threadId: string, turnId: string, input: UserInput[]) {
+  await client.request<TurnSteerResponse>("turn/steer", {
+    threadId,
+    expectedTurnId: turnId,
+    input,
+  });
+}
+
+export async function setThreadName(client: JsonRpcClient, threadId: string, name: string) {
+  await client.request("thread/name/set", { threadId, name });
+}
+
+export async function archiveThread(client: JsonRpcClient, threadId: string) {
+  await client.request("thread/archive", { threadId });
+}
+
+export async function unarchiveThread(client: JsonRpcClient, threadId: string) {
+  return client.request<ThreadUnarchiveResponse>("thread/unarchive", { threadId });
+}
+
+export async function loadThreads(client: JsonRpcClient, archived: boolean) {
+  const response = await client.request<ThreadListResponse>("thread/list", {
+    limit: 30,
+    sortKey: "updated_at",
+    sortDirection: "desc",
+    archived,
+  });
+
+  return response.data;
+}
+
+export async function loadModels(client: JsonRpcClient) {
+  const response = await client.request<ModelListResponse>("model/list", {
+    limit: 50,
+    includeHidden: false,
+  });
+
+  return response.data;
+}
+
+export async function loadSkills(client: JsonRpcClient, cwd: string | null) {
+  if (!cwd) {
+    return [];
+  }
+
+  const response = await client.request<SkillsListResponse>("skills/list", {
+    cwds: [cwd],
+    forceReload: false,
+  });
+
+  return response.data.flatMap((entry) => entry.skills).filter((skill) => skill.enabled);
+}
+
+export async function loadApps(client: JsonRpcClient, threadId: string | null) {
+  const response = await client.request<AppsListResponse>("app/list", {
+    threadId,
+    limit: 50,
+    forceRefetch: false,
+  });
+
+  return response.data.filter((app) => app.isAccessible && app.isEnabled);
+}
+
+export async function startReview(client: JsonRpcClient, threadId: string) {
+  return client.request<ReviewStartResponse>("review/start", {
+    threadId,
+    delivery: "inline",
+    target: { type: "uncommittedChanges" },
   });
 }
 
