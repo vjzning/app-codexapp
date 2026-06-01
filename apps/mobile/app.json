@@ -51,6 +51,7 @@
             ],
             "enableMinifyInReleaseBuilds": true,
             "enableShrinkResourcesInReleaseBuilds": true,
+            "usesCleartextTraffic": true,
             "targetSdkVersion": 35
           }
         }
