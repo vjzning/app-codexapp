@@ -1,0 +1,83 @@
+name: Android Release APK
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-android-apk:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Enable pnpm
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Android SDK packages
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            "platforms;android-36" \
+            "build-tools;36.0.0" \
+            "ndk;29.0.13113456"
+
+      - name: Generate Android project
+        run: pnpm --filter mobile exec expo prebuild --platform android --no-install
+
+      - name: Build release APK
+        working-directory: apps/mobile/android
+        run: ./gradlew assembleRelease
+
+      - name: Prepare APK artifact
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            VERSION="${GITHUB_REF_NAME}"
+          else
+            VERSION="manual-${GITHUB_RUN_NUMBER}"
+          fi
+          mkdir -p dist
+          cp apps/mobile/android/app/build/outputs/apk/release/app-release.apk \
+            "dist/codex-mobile-remote-${VERSION}-arm.apk"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-release-apk
+          path: dist/*.apk
+
+      - name: Publish GitHub Release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          APK_PATH="$(ls dist/*.apk | head -n 1)"
+          # tag 触发时自动创建 Release，并把 APK 作为发布资产上传。
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release upload "${GITHUB_REF_NAME}" "$APK_PATH" --clobber
+          else
+            gh release create "${GITHUB_REF_NAME}" "$APK_PATH" \
+              --title "${GITHUB_REF_NAME}" \
+              --notes "Automated Android APK build for ${GITHUB_REF_NAME}."
+          fi

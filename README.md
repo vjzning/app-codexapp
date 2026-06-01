@@ -29,6 +29,19 @@ pnpm mobile
 pnpm protocol:generate
 ```
 
+## 发布 Android APK
+
+项目使用 GitHub Actions 自动构建 Android release APK。
+
+打一个 `v*` tag 并推送后，GitHub 会自动构建 APK，并上传到对应 GitHub Release：
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+也可以在 GitHub Actions 页面手动运行 `Android Release APK` workflow。手动运行只会生成 workflow artifact，不会创建 Release。
+
 ## 一键启动
 
 ### 本地局域网
