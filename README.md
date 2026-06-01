@@ -2,6 +2,14 @@
 
 Codex App Server 移动端客户端。它把手机 App 当作一个 Codex UI surface，连接你显式启动的 `codex app-server`，用于查看会话、继续发送消息、接收事件和处理审批。
 
+## 预览
+
+<p>
+  <img src="./docs/images/chat-detail-preview.jpg" alt="会话详情界面" width="260" />
+  <img src="./docs/images/connection-preview.jpg" alt="连接管理界面" width="260" />
+  <img src="./docs/images/thread-list-preview.jpg" alt="会话列表界面" width="260" />
+</p>
+
 ## 目录
 
 ```text
