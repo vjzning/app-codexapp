@@ -40,6 +40,7 @@ export type PendingApproval = Extract<
     method:
       | "item/commandExecution/requestApproval"
       | "item/fileChange/requestApproval"
+      | "item/permissions/requestApproval"
       | "execCommandApproval"
       | "applyPatchApproval";
   }

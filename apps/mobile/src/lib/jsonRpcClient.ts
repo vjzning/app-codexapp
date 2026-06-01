@@ -1,8 +1,7 @@
 import type { ClientRequest } from "@codex-mobile/protocol";
-import type { CommandExecutionRequestApprovalResponse } from "@codex-mobile/protocol/v2";
-import type { FileChangeRequestApprovalResponse } from "@codex-mobile/protocol/v2";
 import type { ToolRequestUserInputResponse } from "@codex-mobile/protocol/v2";
 
+import { buildApprovalResponse } from "@/components/approval/approvalFormat";
 import type { ConnectionState, JsonRpcId, JsonRpcIncoming, PendingApproval, PendingUserInputRequest, ReadinessStatus } from "@/types/codex";
 
 type RequestResult<T> = {
@@ -28,6 +27,7 @@ type ReactNativeWebSocketCtor = new (
 const APPROVAL_METHODS = new Set([
   "item/commandExecution/requestApproval",
   "item/fileChange/requestApproval",
+  "item/permissions/requestApproval",
   "execCommandApproval",
   "applyPatchApproval",
 ]);
@@ -316,17 +316,4 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string)
       },
     );
   });
-}
-
-function buildApprovalResponse(request: PendingApproval, decision: ApprovalDecision) {
-  switch (request.method) {
-    case "item/commandExecution/requestApproval":
-      return { decision } satisfies CommandExecutionRequestApprovalResponse;
-    case "item/fileChange/requestApproval":
-      return { decision } satisfies FileChangeRequestApprovalResponse;
-    case "execCommandApproval":
-      return { decision: decision === "accept" || decision === "acceptForSession" ? "approved" : "denied" };
-    case "applyPatchApproval":
-      return { decision: decision === "accept" || decision === "acceptForSession" ? "approved" : "denied" };
-  }
 }

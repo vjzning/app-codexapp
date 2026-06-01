@@ -1,6 +1,12 @@
-import type { Thread } from "@codex-mobile/protocol/v2";
+import type { FileUpdateChange, Thread, TurnPlanStep } from "@codex-mobile/protocol/v2";
 
-import { appendTimelineBody, type TimelineEntry } from "@/lib/threadFormat";
+import {
+  appendTimelineBody,
+  timelineEntryFromFileChangePatch,
+  timelineEntryFromTurnDiff,
+  timelineEntryFromTurnPlan,
+  type TimelineEntry,
+} from "@/lib/threadFormat";
 
 import type { DeltaBuffer, PendingEntry } from "./types";
 
@@ -186,6 +192,125 @@ export function appendCommandOutputDelta(current: TimelineEntry[], turnId: strin
         }
       : entry,
   );
+}
+
+export function applyTurnPlanUpdated(current: TimelineEntry[], turnId: string, explanation: string | null, plan: TurnPlanStep[]) {
+  return upsertTimelineEntry(current, timelineEntryFromTurnPlan(turnId, explanation, plan));
+}
+
+export function applyPlanDelta(current: TimelineEntry[], turnId: string, itemId: string, delta: string) {
+  const entryId = `${turnId}:${itemId}`;
+  const index = current.findIndex((entry) => entry.id === entryId);
+
+  if (index === -1) {
+    const entry: TimelineEntry = {
+      id: entryId,
+      turnId,
+      role: "assistant",
+      title: "Plan",
+      body: appendTimelineBody("", delta),
+      streaming: true,
+    };
+
+    return [...current, entry];
+  }
+
+  return current.map((entry, entryIndex) =>
+    entryIndex === index
+      ? {
+          ...entry,
+          body: appendTimelineBody(entry.body, delta),
+          streaming: true,
+        }
+      : entry,
+  );
+}
+
+export function applyTurnDiffUpdated(current: TimelineEntry[], turnId: string, diff: string) {
+  if (!diff.trim()) {
+    return current.filter((entry) => entry.id !== `${turnId}:turn-diff`);
+  }
+
+  return upsertTimelineEntry(current, timelineEntryFromTurnDiff(turnId, diff));
+}
+
+export function applyFileChangePatchUpdated(current: TimelineEntry[], turnId: string, itemId: string, changes: FileUpdateChange[]) {
+  if (changes.length === 0) {
+    return current;
+  }
+
+  return upsertTimelineEntry(current, timelineEntryFromFileChangePatch(turnId, itemId, changes));
+}
+
+export function applyReasoningDelta(current: TimelineEntry[], turnId: string, itemId: string, delta: string, title = "Reasoning") {
+  return appendOrCreateTextEntry(current, {
+    turnId,
+    itemId,
+    role: "assistant",
+    title,
+    delta,
+  });
+}
+
+export function applyMcpToolCallProgress(current: TimelineEntry[], turnId: string, itemId: string, message: string) {
+  return appendOrCreateTextEntry(current, {
+    turnId,
+    itemId,
+    role: "tool",
+    title: "MCP 工具进度",
+    delta: message.endsWith("\n") ? message : `${message}\n`,
+  });
+}
+
+export function applyThreadCompacted(current: TimelineEntry[], turnId: string) {
+  return upsertTimelineEntry(current, {
+    id: `${turnId}:context-compacted`,
+    turnId,
+    role: "system",
+    title: "上下文已压缩",
+    body: "当前会话上下文已压缩，后续回复会基于压缩后的上下文继续。",
+  });
+}
+
+function appendOrCreateTextEntry(
+  current: TimelineEntry[],
+  params: { turnId: string; itemId: string; role: TimelineEntry["role"]; title: string; delta: string },
+) {
+  const entryId = `${params.turnId}:${params.itemId}`;
+  const index = current.findIndex((entry) => entry.id === entryId);
+
+  if (index === -1) {
+    const entry: TimelineEntry = {
+      id: entryId,
+      turnId: params.turnId,
+      role: params.role,
+      title: params.title,
+      body: appendTimelineBody("", params.delta),
+      streaming: true,
+    };
+
+    return [...current, entry];
+  }
+
+  return current.map((entry, entryIndex) =>
+    entryIndex === index
+      ? {
+          ...entry,
+          body: appendTimelineBody(entry.body, params.delta),
+          streaming: true,
+        }
+      : entry,
+  );
+}
+
+function upsertTimelineEntry(current: TimelineEntry[], entry: TimelineEntry) {
+  const index = current.findIndex((candidate) => candidate.id === entry.id);
+
+  if (index === -1) {
+    return [...current, entry];
+  }
+
+  return current.map((candidate, candidateIndex) => (candidateIndex === index ? entry : candidate));
 }
 
 function applyAgentMessageDelta(current: TimelineEntry[], turnId: string, itemId: string, delta: string) {

@@ -23,6 +23,7 @@ import { UserInputRequestCard } from "@/components/user-input/UserInputRequestCa
 import { getUserInputTimelineEntryId } from "@/components/user-input/userInputFormat";
 import type { PendingApproval, PendingUserInputRequest } from "@/types/codex";
 import type { ComposerImageAttachment, ComposerMention } from "@/types/composer";
+import { getPermissionMode, type PermissionModeId } from "@/types/permissionMode";
 
 type Props = {
   thread: Thread | null;
@@ -41,6 +42,7 @@ type Props = {
   models?: Model[];
   plugins?: PluginSummary[];
   selectedModelId?: string | null;
+  selectedPermissionModeId?: PermissionModeId;
   skills?: SkillMetadata[];
   onBack: () => void;
   onCreateNew?: () => void;
@@ -51,6 +53,7 @@ type Props = {
   onRenameThread?: (name: string) => void | Promise<void>;
   onReviewThread?: () => void | Promise<void>;
   onSelectModel?: (modelId: string) => void;
+  onSelectPermissionMode?: (modeId: PermissionModeId) => void;
   onSend: (text: string, mentions?: ComposerMention[], images?: ComposerImageAttachment[]) => void | Promise<void>;
   onRunShellCommand?: (command: string) => void | Promise<void>;
   onInterrupt: () => void;
@@ -75,6 +78,7 @@ export function ThreadDetail({
   models = [],
   plugins = [],
   selectedModelId = null,
+  selectedPermissionModeId = "standard",
   skills = [],
   onBack,
   onCreateNew,
@@ -85,6 +89,7 @@ export function ThreadDetail({
   onRenameThread,
   onReviewThread,
   onSelectModel,
+  onSelectPermissionMode,
   onSend,
   onRunShellCommand,
   onInterrupt,
@@ -228,6 +233,7 @@ export function ThreadDetail({
   };
 
   const selectedModelLabel = models.find((model) => model.model === selectedModelId)?.displayName ?? selectedModelId;
+  const selectedPermissionMode = getPermissionMode(selectedPermissionModeId);
   const shouldSteer = isResponding && (message.trim().length > 0 || imageAttachments.length > 0);
 
   const handleScroll = useCallback((event: { nativeEvent: { contentOffset: { y: number }; contentSize: { height: number }; layoutMeasurement: { height: number } } }) => {
@@ -373,7 +379,12 @@ export function ThreadDetail({
           onSelectModel?.(modelId);
           setToolsVisible(false);
         }}
+        onSelectPermissionMode={(modeId) => {
+          onSelectPermissionMode?.(modeId);
+          setToolsVisible(false);
+        }}
         selectedModelId={selectedModelId}
+        selectedPermissionModeId={selectedPermissionModeId}
         plugins={plugins}
         skills={skills}
         visible={toolsVisible}
@@ -397,11 +408,18 @@ export function ThreadDetail({
       />
 
       <View style={styles.composerShell}>
-        {selectedModelLabel || mentions.length ? (
+        {selectedModelLabel || selectedPermissionMode || mentions.length ? (
           <View style={styles.composerMeta}>
             {selectedModelLabel ? (
               <View style={styles.composerMetaChip}>
                 <Text style={styles.composerMetaText}>模型 {selectedModelLabel}</Text>
+              </View>
+            ) : null}
+            {selectedPermissionMode ? (
+              <View style={[styles.composerMetaChip, selectedPermissionMode.id === "full" && styles.composerMetaChipDanger]}>
+                <Text style={[styles.composerMetaText, selectedPermissionMode.id === "full" && styles.composerMetaTextDanger]}>
+                  权限 {selectedPermissionMode.label}
+                </Text>
               </View>
             ) : null}
             {mentions.map((mention) => (
@@ -705,10 +723,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 5,
   },
+  composerMetaChipDanger: {
+    backgroundColor: "#fff1f1",
+    borderColor: "#f0b8b8",
+  },
   composerMetaText: {
     color: "#304052",
     fontSize: 12,
     fontWeight: "800",
+  },
+  composerMetaTextDanger: {
+    color: "#b42318",
   },
   imageComposerStrip: {
     flexDirection: "row",

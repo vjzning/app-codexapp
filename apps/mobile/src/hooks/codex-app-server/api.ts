@@ -19,6 +19,8 @@ import { JsonRpcClient } from "@/lib/jsonRpcClient";
 import type { ReadinessStatus } from "@/types/codex";
 
 import type { NormalizedConnection } from "./types";
+import type { PermissionModeId } from "@/types/permissionMode";
+import { getPermissionMode, getPermissionModeSandboxPolicy } from "@/types/permissionMode";
 
 export const DETAIL_TURN_PAGE_SIZE = 4;
 
@@ -36,10 +38,19 @@ export async function ensureThreadResumed(client: JsonRpcClient, thread: Thread)
   return resumed.thread;
 }
 
-export async function startTurn(client: JsonRpcClient, threadId: string, input: UserInput[], options: { model?: string | null } = {}) {
+export async function startTurn(
+  client: JsonRpcClient,
+  threadId: string,
+  input: UserInput[],
+  options: { cwd?: string; model?: string | null; permissionMode?: PermissionModeId } = {},
+) {
+  const permissionMode = options.permissionMode ? getPermissionMode(options.permissionMode) : null;
+
   await client.request<TurnStartResponse>("turn/start", {
     threadId,
     model: options.model ?? undefined,
+    approvalsReviewer: permissionMode?.approvalsReviewer,
+    sandboxPolicy: permissionMode && options.cwd ? getPermissionModeSandboxPolicy(permissionMode.id, options.cwd) : undefined,
     input,
   });
 }

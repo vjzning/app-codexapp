@@ -6,12 +6,14 @@ import { FlashList } from "@shopify/flash-list";
 import type { Model, PluginSummary, SkillMetadata } from "@codex-mobile/protocol/v2";
 
 import type { ComposerMention } from "@/types/composer";
+import { PERMISSION_MODES, type PermissionModeId } from "@/types/permissionMode";
 
 type Props = {
   isLoading?: boolean;
   models: Model[];
   plugins: PluginSummary[];
   selectedModelId: string | null;
+  selectedPermissionModeId: PermissionModeId;
   skills: SkillMetadata[];
   visible: boolean;
   onClose: () => void;
@@ -20,11 +22,13 @@ type Props = {
   onRunCommand: () => void;
   onSelectMention: (mention: ComposerMention) => void;
   onSelectModel: (modelId: string) => void;
+  onSelectPermissionMode: (modeId: PermissionModeId) => void;
 };
 
 type ToolListItem =
   | { type: "quick" }
   | { type: "models" }
+  | { type: "permissionModes" }
   | { type: "section"; id: string; title: string }
   | { type: "skill"; skill: SkillMetadata }
   | { type: "plugin"; plugin: PluginSummary }
@@ -35,6 +39,7 @@ export function ComposerToolsModal({
   models,
   plugins,
   selectedModelId,
+  selectedPermissionModeId,
   skills,
   visible,
   onClose,
@@ -43,6 +48,7 @@ export function ComposerToolsModal({
   onRunCommand,
   onSelectMention,
   onSelectModel,
+  onSelectPermissionMode,
 }: Props) {
   const [activePluginId, setActivePluginId] = useState<string | null>(null);
   const { height: windowHeight } = useWindowDimensions();
@@ -50,7 +56,13 @@ export function ComposerToolsModal({
   const listHeight = sheetHeight - 58;
 
   const data = useMemo<ToolListItem[]>(() => {
-    const items: ToolListItem[] = [{ type: "quick" }, { type: "section", id: "models-title", title: "模型" }, { type: "models" }];
+    const items: ToolListItem[] = [
+      { type: "quick" },
+      { type: "section", id: "models-title", title: "模型" },
+      { type: "models" },
+      { type: "section", id: "permissions-title", title: "权限模式" },
+      { type: "permissionModes" },
+    ];
 
     items.push({ type: "section", id: "skills-title", title: "Skills" });
     if (skills.length) {
@@ -109,6 +121,24 @@ export function ComposerToolsModal({
               )}
             </View>
           );
+        case "permissionModes":
+          return (
+            <View style={styles.permissionWrap}>
+              {PERMISSION_MODES.map((mode) => (
+                <Pressable
+                  key={mode.id}
+                  onPress={() => onSelectPermissionMode(mode.id)}
+                  style={[styles.permissionAction, selectedPermissionModeId === mode.id && styles.permissionActionActive, mode.id === "full" && styles.permissionActionDanger]}
+                >
+                  <View style={styles.permissionTitleRow}>
+                    <Text style={[styles.actionTitle, selectedPermissionModeId === mode.id && styles.permissionTitleActive]}>{mode.label}</Text>
+                    {selectedPermissionModeId === mode.id ? <Ionicons color={mode.id === "full" ? "#b42318" : "#2454d6"} name="checkmark-circle" size={17} /> : null}
+                  </View>
+                  <Text style={styles.actionText}>{mode.description}</Text>
+                </Pressable>
+              ))}
+            </View>
+          );
         case "section":
           return <Text style={styles.sectionTitle}>{item.title}</Text>;
         case "skill":
@@ -150,7 +180,9 @@ export function ComposerToolsModal({
       onRunCommand,
       onSelectMention,
       onSelectModel,
+      onSelectPermissionMode,
       selectedModelId,
+      selectedPermissionModeId,
     ],
   );
 
@@ -189,6 +221,8 @@ function keyExtractor(item: ToolListItem) {
       return "quick";
     case "models":
       return "models";
+    case "permissionModes":
+      return "permissionModes";
     case "section":
       return item.id;
     case "skill":
@@ -346,6 +380,33 @@ const styles = StyleSheet.create({
   },
   modelTextActive: {
     color: "#ffffff",
+  },
+  permissionWrap: {
+    gap: 8,
+  },
+  permissionAction: {
+    backgroundColor: "#f4f7fb",
+    borderColor: "#d8dee8",
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 3,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  permissionActionActive: {
+    backgroundColor: "#eef4ff",
+    borderColor: "#9db7f4",
+  },
+  permissionActionDanger: {
+    borderColor: "#f0b8b8",
+  },
+  permissionTitleRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  permissionTitleActive: {
+    color: "#2454d6",
   },
   emptyText: {
     color: "#6b7788",

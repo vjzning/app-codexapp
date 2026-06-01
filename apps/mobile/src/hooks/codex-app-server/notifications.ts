@@ -5,7 +5,19 @@ import { flattenTurns, timelineEntryFromThreadItem, type TimelineEntry } from "@
 import type { JsonRpcIncoming, PendingApproval, PendingUserInputRequest } from "@/types/codex";
 
 import type { DeltaBuffer, LiveEvent } from "./types";
-import { appendCommandOutputDelta, bufferAgentMessageDelta, flushBufferedDeltas, removeBufferedDelta } from "./timelineState";
+import {
+  appendCommandOutputDelta,
+  applyFileChangePatchUpdated,
+  applyMcpToolCallProgress,
+  applyPlanDelta,
+  applyReasoningDelta,
+  applyThreadCompacted,
+  applyTurnDiffUpdated,
+  applyTurnPlanUpdated,
+  bufferAgentMessageDelta,
+  flushBufferedDeltas,
+  removeBufferedDelta,
+} from "./timelineState";
 
 type NotificationHandlers = {
   setThreads: React.Dispatch<React.SetStateAction<Thread[]>>;
@@ -65,6 +77,52 @@ export function handleNotification(message: JsonRpcIncoming, handlers: Notificat
     );
   }
 
+  if (notification.method === "item/plan/delta" && notification.params.threadId === handlers.selectedThreadIdRef.current) {
+    handlers.setTimeline((current) => applyPlanDelta(current, notification.params.turnId, notification.params.itemId, notification.params.delta));
+  }
+
+  if (notification.method === "turn/plan/updated" && notification.params.threadId === handlers.selectedThreadIdRef.current) {
+    handlers.setTimeline((current) =>
+      applyTurnPlanUpdated(current, notification.params.turnId, notification.params.explanation, notification.params.plan),
+    );
+  }
+
+  if (notification.method === "turn/diff/updated" && notification.params.threadId === handlers.selectedThreadIdRef.current) {
+    handlers.setTimeline((current) => applyTurnDiffUpdated(current, notification.params.turnId, notification.params.diff));
+  }
+
+  if (notification.method === "item/fileChange/patchUpdated" && notification.params.threadId === handlers.selectedThreadIdRef.current) {
+    handlers.setTimeline((current) =>
+      applyFileChangePatchUpdated(current, notification.params.turnId, notification.params.itemId, notification.params.changes),
+    );
+  }
+
+  if (notification.method === "item/reasoning/summaryTextDelta" && notification.params.threadId === handlers.selectedThreadIdRef.current) {
+    handlers.setTimeline((current) =>
+      applyReasoningDelta(current, notification.params.turnId, notification.params.itemId, notification.params.delta, "Reasoning Summary"),
+    );
+  }
+
+  if (notification.method === "item/reasoning/textDelta" && notification.params.threadId === handlers.selectedThreadIdRef.current) {
+    handlers.setTimeline((current) =>
+      applyReasoningDelta(current, notification.params.turnId, notification.params.itemId, notification.params.delta, "Reasoning"),
+    );
+  }
+
+  if (notification.method === "item/reasoning/summaryPartAdded" && notification.params.threadId === handlers.selectedThreadIdRef.current) {
+    handlers.setTimeline((current) => applyReasoningDelta(current, notification.params.turnId, notification.params.itemId, "\n", "Reasoning Summary"));
+  }
+
+  if (notification.method === "item/mcpToolCall/progress" && notification.params.threadId === handlers.selectedThreadIdRef.current) {
+    handlers.setTimeline((current) =>
+      applyMcpToolCallProgress(current, notification.params.turnId, notification.params.itemId, notification.params.message),
+    );
+  }
+
+  if (notification.method === "thread/compacted" && notification.params.threadId === handlers.selectedThreadIdRef.current) {
+    handlers.setTimeline((current) => applyThreadCompacted(current, notification.params.turnId));
+  }
+
   if (notification.method === "thread/status/changed") {
     handlers.setThreads((current) =>
       current.map((thread) => (thread.id === notification.params.threadId ? { ...thread, status: notification.params.status } : thread)),
@@ -72,6 +130,15 @@ export function handleNotification(message: JsonRpcIncoming, handlers: Notificat
     handlers.setSelectedThread((thread) =>
       thread && thread.id === notification.params.threadId ? { ...thread, status: notification.params.status } : thread,
     );
+  }
+
+  if (notification.method === "thread/archived" || notification.method === "thread/closed") {
+    handlers.setThreads((current) => current.filter((thread) => thread.id !== notification.params.threadId));
+    handlers.setSelectedThread((thread) => (thread && thread.id === notification.params.threadId ? { ...thread, status: { type: "idle" } } : thread));
+  }
+
+  if (notification.method === "thread/unarchived") {
+    handlers.setThreads((current) => current.map((thread) => (thread.id === notification.params.threadId ? { ...thread, status: { type: "idle" } } : thread)));
   }
 
   if (notification.method === "serverRequest/resolved") {
@@ -154,12 +221,33 @@ function summarizeNotification(notification: ServerNotification) {
       return notification.params.delta;
     case "item/commandExecution/outputDelta":
       return notification.params.delta;
+    case "item/plan/delta":
+      return notification.params.delta;
+    case "item/reasoning/summaryTextDelta":
+    case "item/reasoning/textDelta":
+      return notification.params.delta;
+    case "item/reasoning/summaryPartAdded":
+      return `Reasoning summary part added: ${notification.params.summaryIndex}`;
+    case "item/mcpToolCall/progress":
+      return notification.params.message;
     case "turn/started":
       return `Turn started: ${notification.params.turn.id}`;
     case "turn/completed":
       return `Turn completed: ${notification.params.turn.status}`;
     case "turn/diff/updated":
       return `Diff updated: ${notification.params.diff.length} chars`;
+    case "turn/plan/updated":
+      return `Plan updated: ${notification.params.plan.length} steps`;
+    case "item/fileChange/patchUpdated":
+      return `Patch updated: ${notification.params.changes.length} files`;
+    case "thread/archived":
+      return `Thread archived: ${notification.params.threadId}`;
+    case "thread/unarchived":
+      return `Thread unarchived: ${notification.params.threadId}`;
+    case "thread/closed":
+      return `Thread closed: ${notification.params.threadId}`;
+    case "thread/compacted":
+      return `Thread compacted: ${notification.params.turnId}`;
     case "thread/status/changed":
       return `Thread status: ${notification.params.status.type}`;
     default:

@@ -1,7 +1,7 @@
 import type { ToolRequestUserInputResponse } from "@codex-mobile/protocol/v2";
 import { memo, useState } from "react";
 import * as Clipboard from "expo-clipboard";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import Markdown from "react-native-markdown-display";
 
 import { ApprovalCard } from "@/components/approval/ApprovalCard";
@@ -54,7 +54,9 @@ export const MessageBubble = memo(function MessageBubble({
   const isToolCard = entry.role === "tool" && (isFileChange || isCommandGroup);
   const canCopy = entry.role === "user" && Boolean(entry.body.trim());
   const shouldRenderMarkdown = entry.role === "assistant" && entry.title === "Codex";
-  const showBubbleHeader = entry.role !== "user" || Boolean(entry.metaLabel || entry.streaming || entry.pending || entry.failed);
+  const showPendingSpinner = entry.role === "user" && entry.pending && !entry.failed;
+  const showPendingText = entry.pending && !showPendingSpinner;
+  const showBubbleHeader = entry.role !== "user" || Boolean(entry.metaLabel || entry.streaming || showPendingText || entry.failed);
   const matchedApproval = approval && onResolveApproval && approvalEntryId === entry.id ? approval : null;
   const matchedUserInputRequest = userInputRequest && onResolveUserInputRequest && userInputEntryId === entry.id ? userInputRequest : null;
 
@@ -70,6 +72,11 @@ export const MessageBubble = memo(function MessageBubble({
 
   return (
     <View style={[styles.messageRow, entry.role === "user" ? styles.messageRowUser : styles.messageRowOther, (isToolCard || isCommandCard) && styles.messageRowFull]}>
+      {showPendingSpinner ? (
+        <View style={styles.pendingSpinner}>
+          <ActivityIndicator color="#2454d6" size="small" />
+        </View>
+      ) : null}
       <Pressable
         disabled={!shouldCollapse || isFileChange || isCommandCard || isCommandGroup}
         onPress={() => setExpanded((current) => !current)}
@@ -92,7 +99,7 @@ export const MessageBubble = memo(function MessageBubble({
             {entry.role !== "user" ? <Text style={styles.bubbleTitle}>{entry.title}</Text> : null}
             {entry.metaLabel ? <Text style={[styles.metaText, entry.role === "user" && styles.userMetaText]}>{entry.metaLabel}</Text> : null}
             {entry.streaming ? <Text style={styles.streamingText}>生成中</Text> : null}
-            {entry.pending ? <Text style={styles.pendingText}>发送中</Text> : null}
+            {showPendingText ? <Text style={styles.pendingText}>发送中</Text> : null}
             {entry.failed ? <Text style={styles.failedText}>失败</Text> : null}
           </View>
         )}
@@ -137,6 +144,7 @@ export const MessageBubble = memo(function MessageBubble({
 
 const styles = StyleSheet.create({
   messageRow: {
+    alignItems: "center",
     flexDirection: "row",
   },
   messageRowUser: {
@@ -161,6 +169,17 @@ const styles = StyleSheet.create({
   },
   pendingBubble: {
     opacity: 0.72,
+  },
+  pendingSpinner: {
+    alignItems: "center",
+    backgroundColor: "#ffffff",
+    borderColor: "#d8dee8",
+    borderRadius: 999,
+    borderWidth: 1,
+    height: 26,
+    justifyContent: "center",
+    marginRight: 8,
+    width: 26,
   },
   failedBubble: {
     backgroundColor: "#fff1f1",

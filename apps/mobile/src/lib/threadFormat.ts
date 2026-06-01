@@ -1,4 +1,4 @@
-import type { CommandExecutionRequestApprovalParams, FileUpdateChange, Thread, ThreadItem, Turn, UserInput } from "@codex-mobile/protocol/v2";
+import type { CommandExecutionRequestApprovalParams, FileUpdateChange, Thread, ThreadItem, Turn, TurnPlanStep, UserInput } from "@codex-mobile/protocol/v2";
 
 export type TimelineEntry = {
   id: string;
@@ -95,6 +95,47 @@ export function timelineEntryFromCommandApproval(params: CommandExecutionRequest
 
 export function appendTimelineBody(body: string, delta: string) {
   return clipTimelineBody(`${body}${delta}`);
+}
+
+export function timelineEntryFromTurnPlan(turnId: string, explanation: string | null, plan: TurnPlanStep[]): TimelineEntry {
+  return {
+    id: `${turnId}:turn-plan`,
+    turnId,
+    role: "assistant",
+    title: "Plan",
+    body: clipTimelineBody(formatTurnPlanBody(explanation, plan)),
+    streaming: plan.some((step) => step.status === "inProgress"),
+  };
+}
+
+export function timelineEntryFromTurnDiff(turnId: string, diff: string): TimelineEntry {
+  const change: FileUpdateChange = {
+    path: "当前 turn 变更",
+    kind: { type: "update", move_path: null },
+    diff,
+  };
+
+  return {
+    id: `${turnId}:turn-diff`,
+    turnId,
+    role: "tool",
+    title: "实时文件变更",
+    body: formatFileChangesSummary([change]),
+    fileChanges: [formatTimelineFileChange(change)],
+    streaming: true,
+  };
+}
+
+export function timelineEntryFromFileChangePatch(turnId: string, itemId: string, changes: FileUpdateChange[]): TimelineEntry {
+  return {
+    id: `${turnId}:${itemId}`,
+    turnId,
+    role: "tool",
+    title: `正在编辑 ${changes.length} 个文件`,
+    body: formatFileChangesSummary(changes),
+    fileChanges: changes.map(formatTimelineFileChange),
+    streaming: true,
+  };
 }
 
 function itemToTimelineEntry(
@@ -251,6 +292,22 @@ function formatUserMessageEntry(id: string, content: UserInput[], timestampMs?: 
     body: clipTimelineBody(bodyParts.filter(Boolean).join("\n")),
     attachments,
   };
+}
+
+function formatTurnPlanBody(explanation: string | null, plan: TurnPlanStep[]) {
+  const lines = plan.map((step) => `${formatPlanStepStatus(step.status)} ${step.step}`);
+  return [explanation, ...lines].filter(Boolean).join("\n");
+}
+
+function formatPlanStepStatus(status: TurnPlanStep["status"]) {
+  switch (status) {
+    case "pending":
+      return "[ ]";
+    case "inProgress":
+      return "[~]";
+    case "completed":
+      return "[x]";
+  }
 }
 
 function formatUserInputText(input: UserInput) {

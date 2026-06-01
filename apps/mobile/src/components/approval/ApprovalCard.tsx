@@ -22,8 +22,8 @@ export function ApprovalCard({ approval, compact = false, onResolve }: Props) {
   return (
     <View style={[styles.card, compact && styles.cardCompact]}>
       <View style={styles.header}>
-        <View style={[styles.iconWrap, display.tone === "file" && styles.fileIconWrap]}>
-          <Ionicons color={display.tone === "file" ? "#2454d6" : "#b54708"} name={display.tone === "file" ? "document-text" : "terminal"} size={18} />
+        <View style={[styles.iconWrap, display.tone === "file" && styles.fileIconWrap, display.tone === "permission" && styles.permissionIconWrap]}>
+          <Ionicons color={getIconColor(display.tone)} name={getIconName(display.tone)} size={18} />
         </View>
         <View style={styles.copy}>
           <Text style={styles.title}>{display.title}</Text>
@@ -46,6 +46,30 @@ export function ApprovalCard({ approval, compact = false, onResolve }: Props) {
       </View>
     </View>
   );
+}
+
+function getIconName(tone: "command" | "file" | "permission" | "legacy") {
+  switch (tone) {
+    case "file":
+      return "document-text";
+    case "permission":
+      return "shield-checkmark";
+    case "command":
+    case "legacy":
+      return "terminal";
+  }
+}
+
+function getIconColor(tone: "command" | "file" | "permission" | "legacy") {
+  switch (tone) {
+    case "file":
+      return "#2454d6";
+    case "permission":
+      return "#1e7b45";
+    case "command":
+    case "legacy":
+      return "#b54708";
+  }
 }
 
 const styles = StyleSheet.create({
@@ -75,6 +99,9 @@ const styles = StyleSheet.create({
   },
   fileIconWrap: {
     backgroundColor: "#e8f0ff",
+  },
+  permissionIconWrap: {
+    backgroundColor: "#e8f7ef",
   },
   copy: {
     flex: 1,

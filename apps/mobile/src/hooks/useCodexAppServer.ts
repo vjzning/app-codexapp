@@ -11,6 +11,7 @@ import { JsonRpcClient } from "@/lib/jsonRpcClient";
 import { flattenTurns, timelineEntryFromCommandApproval, type TimelineEntry } from "@/lib/threadFormat";
 import type { ConnectionState, PendingApproval, PendingUserInputRequest, ReadinessStatus } from "@/types/codex";
 import type { ComposerImageAttachment, ComposerMention } from "@/types/composer";
+import { DEFAULT_PERMISSION_MODE_ID, getPermissionMode, type PermissionModeId } from "@/types/permissionMode";
 
 import {
   archiveThread,
@@ -72,6 +73,7 @@ export function useCodexAppServer() {
   const [olderTurnsCursor, setOlderTurnsCursor] = useState<string | null>(null);
   const [activeTurnId, setActiveTurnId] = useState<string | null>(null);
   const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
+  const [selectedPermissionModeId, setSelectedPermissionModeId] = useState<PermissionModeId>(DEFAULT_PERMISSION_MODE_ID);
   const [pickerData, setPickerData] = useState<PickerData>({
     models: [],
     skills: [],
@@ -405,7 +407,7 @@ export function useCodexAppServer() {
       return resumedThread;
     }
 
-    await startTurn(client, resumedThread.id, input, { model: selectedModelId });
+    await startTurn(client, resumedThread.id, input, { cwd: resumedThread.cwd, model: selectedModelId, permissionMode: selectedPermissionModeId });
     return resumedThread;
   };
 
@@ -477,9 +479,12 @@ export function useCodexAppServer() {
     setRecentError(null);
 
     try {
+      const permissionMode = getPermissionMode(selectedPermissionModeId);
       const result = await client.request<ThreadStartResponse>("thread/start", {
         cwd: trimmedCwd,
         model: selectedModelId ?? undefined,
+        approvalsReviewer: permissionMode.approvalsReviewer,
+        sandbox: permissionMode.sandbox,
         experimentalRawEvents: false,
         persistExtendedHistory: false,
       });
@@ -739,6 +744,7 @@ export function useCodexAppServer() {
     isInterruptingTurn,
     isLoadingPickerData,
     selectedModelId,
+    selectedPermissionModeId,
     pickerData,
     isResponding: Boolean(activeTurnId) || selectedThread?.status.type === "active",
     statusLabel: activeTurnId ? "正在回复..." : getThreadStatusLabel(selectedThread),
@@ -756,6 +762,7 @@ export function useCodexAppServer() {
     createThread,
     sendMessage,
     setSelectedModelId,
+    setSelectedPermissionModeId,
     renameThread,
     archiveSelectedThread,
     restoreThread,

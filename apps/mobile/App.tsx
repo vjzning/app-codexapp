@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { StatusBar } from "expo-status-bar";
-import { StyleSheet, View } from "react-native";
+import { KeyboardAvoidingView, Platform, StyleSheet } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 
 import { ThreadDetail } from "@/components/ThreadDetail";
@@ -45,7 +45,8 @@ export default function App() {
       <SafeAreaProvider>
         <SafeAreaView edges={["top", "bottom"]} style={styles.safeArea}>
           <StatusBar style="dark" />
-          <View style={styles.detailScreen}>
+          {/* 详情页底部输入框贴近屏幕底部，键盘出现时需要由 RN 层主动让出空间。 */}
+          <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.detailScreen}>
             <ThreadDetail
               approval={codex.approval}
               userInputRequest={codex.userInputRequest}
@@ -60,6 +61,7 @@ export default function App() {
               models={codex.pickerData.models}
               plugins={codex.pickerData.plugins}
               selectedModelId={codex.selectedModelId}
+              selectedPermissionModeId={codex.selectedPermissionModeId}
               statusLabel={isDraftThread ? "新会话" : codex.statusLabel}
               skills={codex.pickerData.skills}
               onBack={closeThread}
@@ -75,11 +77,12 @@ export default function App() {
               onResolveUserInputRequest={codex.resolveUserInputRequest}
               onRunShellCommand={codex.runShellCommand}
               onSelectModel={codex.setSelectedModelId}
+              onSelectPermissionMode={codex.setSelectedPermissionModeId}
               onSend={isDraftThread ? sendDraftMessage : codex.sendMessage}
               thread={codex.selectedThread}
               timeline={isDraftThread ? [] : codex.timeline}
             />
-          </View>
+          </KeyboardAvoidingView>
         </SafeAreaView>
       </SafeAreaProvider>
     );
