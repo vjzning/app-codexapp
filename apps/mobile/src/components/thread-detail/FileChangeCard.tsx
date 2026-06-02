@@ -8,11 +8,20 @@ import { formatWorkspaceRelativePath } from "./utils";
 type Props = {
   changes: TimelineFileChange[];
   workspacePath: string;
+  compact?: boolean;
   initialVisibleCount?: number;
+  onOpenAllFileChanges?: (fileChanges: TimelineFileChange[]) => void;
   onOpenFileChange: (fileChange: TimelineFileChange) => void;
 };
 
-export function FileChangeCard({ changes, workspacePath, initialVisibleCount = 3, onOpenFileChange }: Props) {
+export function FileChangeCard({
+  changes,
+  workspacePath,
+  compact = false,
+  initialVisibleCount = 3,
+  onOpenAllFileChanges,
+  onOpenFileChange,
+}: Props) {
   const [expanded, setExpanded] = useState(false);
   const totals = changes.reduce(
     (next, change) => ({
@@ -24,10 +33,39 @@ export function FileChangeCard({ changes, workspacePath, initialVisibleCount = 3
   const hasLineStats = totals.additions > 0 || totals.deletions > 0;
   const visibleChanges = expanded ? changes : changes.slice(0, initialVisibleCount);
   const hiddenCount = Math.max(0, changes.length - visibleChanges.length);
+  const lastChange = changes.at(-1);
+
+  if (compact && lastChange) {
+    return (
+      <Pressable
+        onPress={() => {
+          if (onOpenAllFileChanges) {
+            onOpenAllFileChanges(changes);
+            return;
+          }
+
+          onOpenFileChange(lastChange);
+        }}
+        style={styles.compactFileCard}
+      >
+        <Text style={[styles.statusPill, getStatusPillStyle(lastChange.status)]}>{lastChange.kind}</Text>
+        <Text numberOfLines={1} style={styles.compactFileTitle}>
+          最后编辑 {formatWorkspaceRelativePath(lastChange.path, workspacePath)}
+        </Text>
+        {hasLineStats ? (
+          <Text style={styles.fileHeaderStats}>
+            <Text style={styles.diffAdd}>+{totals.additions}</Text>
+            <Text> </Text>
+            <Text style={styles.diffDelete}>-{totals.deletions}</Text>
+          </Text>
+        ) : null}
+      </Pressable>
+    );
+  }
 
   return (
     <View style={styles.fileCard}>
-      <View style={styles.fileCardHeader}>
+      <Pressable onPress={() => onOpenAllFileChanges?.(changes)} style={styles.fileCardHeader}>
         <Text numberOfLines={1} style={styles.fileHeaderTitle}>
           已编辑 {changes.length} 个文件
         </Text>
@@ -38,7 +76,7 @@ export function FileChangeCard({ changes, workspacePath, initialVisibleCount = 3
             <Text style={styles.diffDelete}>-{totals.deletions}</Text>
           </Text>
         ) : null}
-      </View>
+      </Pressable>
       <View style={styles.fileRows}>
         {visibleChanges.map((change, index) => (
           <Pressable key={`${change.path}:${index}`} onPress={() => onOpenFileChange(change)} style={styles.fileRow}>
@@ -79,6 +117,24 @@ function getStatusPillStyle(status: TimelineFileChange["status"]) {
 }
 
 const styles = StyleSheet.create({
+  compactFileCard: {
+    alignItems: "center",
+    backgroundColor: "#ffffff",
+    borderColor: "#d8dee8",
+    borderRadius: 12,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 8,
+    height: 44,
+    paddingHorizontal: 12,
+    width: "100%",
+  },
+  compactFileTitle: {
+    color: "#304052",
+    flex: 1,
+    fontSize: 12,
+    fontWeight: "800",
+  },
   fileCard: {
     backgroundColor: "#ffffff",
     borderColor: "#d8dee8",

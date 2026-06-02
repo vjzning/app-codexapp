@@ -1,10 +1,10 @@
-import type { CommandExecutionRequestApprovalParams, FileUpdateChange, Thread, ThreadItem, Turn, TurnPlanStep, UserInput } from "@codex-mobile/protocol/v2";
+import type { CommandExecutionRequestApprovalParams, FileUpdateChange, Thread, ThreadItem, Turn, TurnPlanStep, UserInput, WebSearchAction } from "@codex-mobile/protocol/v2";
 
 export type TimelineEntry = {
   id: string;
   turnId?: string;
   role: "user" | "assistant" | "tool" | "system";
-  variant?: "command" | "commandGroup";
+  variant?: "command" | "commandGroup" | "webSearchGroup" | "turnProcessGroup";
   title: string;
   metaLabel?: string;
   timestampMs?: number;
@@ -14,11 +14,20 @@ export type TimelineEntry = {
   commandExitCode?: number | null;
   commandOutput?: string;
   commandEntries?: TimelineEntry[];
+  webSearchActions?: TimelineWebSearchAction[];
+  processEntries?: TimelineEntry[];
   attachments?: TimelineAttachment[];
   fileChanges?: TimelineFileChange[];
   pending?: boolean;
   failed?: boolean;
   streaming?: boolean;
+};
+
+export type TimelineWebSearchAction = {
+  id: string;
+  label: string;
+  detail: string;
+  icon: "search" | "open" | "find" | "other";
 };
 
 export type TimelineAttachment = {
@@ -223,6 +232,19 @@ function itemToTimelineEntry(
         timestampMs: options.timestampMs ?? undefined,
         body: clipTimelineBody(item.namespace ? `${item.namespace}/${item.tool}` : item.tool),
       };
+    case "webSearch": {
+      const action = formatWebSearchAction(item.query, item.action);
+      return {
+        id: entryId,
+        turnId,
+        role: "tool",
+        title: options.streaming ? "正在搜索网页" : "已搜索网页",
+        timestampMs: options.timestampMs ?? undefined,
+        body: action.detail,
+        streaming: options.streaming,
+        webSearchActions: [{ id: entryId, ...action }],
+      };
+    }
     default:
       return {
         // item.id 在不同 turn 之间不保证全局唯一，时间线 key 必须带上 turnId。
@@ -345,6 +367,46 @@ function formatCommandExecutionOutput(output: string) {
   }
 
   return clipTimelineBody(summarizeToolOutput(output));
+}
+
+function formatWebSearchAction(query: string, action: WebSearchAction | null): Omit<TimelineWebSearchAction, "id"> {
+  if (!action) {
+    return {
+      label: "搜索网页",
+      detail: query || "搜索网页",
+      icon: "search",
+    };
+  }
+
+  switch (action.type) {
+    case "search": {
+      const queries = action.queries?.filter(Boolean) ?? [];
+      const searchText = queries.length ? queries.join("\n") : action.query || query || "搜索网页";
+      return {
+        label: queries.length > 1 ? `搜索网页 ${queries.length} 次` : "搜索网页",
+        detail: searchText,
+        icon: "search",
+      };
+    }
+    case "openPage":
+      return {
+        label: "打开网页",
+        detail: action.url || query || "打开网页",
+        icon: "open",
+      };
+    case "findInPage":
+      return {
+        label: "页内查找",
+        detail: [action.pattern, action.url].filter(Boolean).join(" · ") || query || "页内查找",
+        icon: "find",
+      };
+    case "other":
+      return {
+        label: "网页操作",
+        detail: query || "网页操作",
+        icon: "other",
+      };
+  }
 }
 
 function formatDurationMeta(durationMs: number | null | undefined) {

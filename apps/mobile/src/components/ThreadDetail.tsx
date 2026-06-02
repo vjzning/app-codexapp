@@ -98,6 +98,7 @@ export function ThreadDetail({
 }: Props) {
   const [message, setMessage] = useState("");
   const [selectedFileChange, setSelectedFileChange] = useState<TimelineFileChange | null>(null);
+  const [selectedFileChanges, setSelectedFileChanges] = useState<TimelineFileChange[] | null>(null);
   const [selectedAttachment, setSelectedAttachment] = useState<TimelineAttachment | null>(null);
   const [selectedCommandEntry, setSelectedCommandEntry] = useState<TimelineEntry | null>(null);
   const [toolsVisible, setToolsVisible] = useState(false);
@@ -116,6 +117,38 @@ export function ThreadDetail({
   const listData = useMemo(
     () => prepareThreadDetailTimeline(timeline, { preserveEntryIds: [approvalEntryId, userInputEntryId] }),
     [approvalEntryId, timeline, userInputEntryId],
+  );
+  const respondingTurnId = useMemo(() => {
+    if (!isResponding) {
+      return null;
+    }
+
+    for (let index = listData.length - 1; index >= 0; index -= 1) {
+      const entry = listData[index];
+      if (entry?.turnId && isActiveTimelineEntry(entry)) {
+        return entry.turnId;
+      }
+    }
+
+    return null;
+  }, [isResponding, listData]);
+  const activeFileChangeEntry = useMemo(() => {
+    if (!respondingTurnId) {
+      return null;
+    }
+
+    for (let index = listData.length - 1; index >= 0; index -= 1) {
+      const entry = listData[index];
+      if (entry?.turnId === respondingTurnId && entry.fileChanges?.length) {
+        return entry;
+      }
+    }
+
+    return null;
+  }, [listData, respondingTurnId]);
+  const visibleListData = useMemo(
+    () => (activeFileChangeEntry ? listData.filter((entry) => entry.id !== activeFileChangeEntry.id) : listData),
+    [activeFileChangeEntry, listData],
   );
   const approvalIsInTimeline = useMemo(() => Boolean(approvalEntryId && listData.some((entry) => entry.id === approvalEntryId)), [approvalEntryId, listData]);
   const userInputIsInTimeline = useMemo(
@@ -247,8 +280,12 @@ export function ThreadDetail({
       <MessageBubble
         approval={approval}
         approvalEntryId={approvalEntryId}
+        compactFileChanges={false}
+        defaultCollapseWebSearch={item.variant === "webSearchGroup" && !isResponding}
+        defaultExpandTurnProcess={Boolean(item.variant === "turnProcessGroup" && item.turnId && item.turnId === respondingTurnId)}
         entry={item}
         onOpenAttachment={setSelectedAttachment}
+        onOpenAllFileChanges={setSelectedFileChanges}
         onOpenCommandOutput={setSelectedCommandEntry}
         workspacePath={workspacePath}
         onOpenFileChange={setSelectedFileChange}
@@ -258,12 +295,12 @@ export function ThreadDetail({
         onResolveUserInputRequest={onResolveUserInputRequest}
       />
     ),
-    [approval, approvalEntryId, onResolveApproval, onResolveUserInputRequest, userInputEntryId, userInputRequest, workspacePath],
+    [approval, approvalEntryId, isResponding, onResolveApproval, onResolveUserInputRequest, respondingTurnId, userInputEntryId, userInputRequest, workspacePath],
   );
 
   if (!thread && !isDraft) {
     return (
-      <SafeAreaView edges={["left", "right", "bottom"]} style={styles.panel}>
+      <SafeAreaView edges={["left", "right"]} style={styles.panel}>
         <View style={styles.topBar}>
           <Pressable onPress={onBack} style={styles.backButton}>
             <Text style={styles.backText}>返回</Text>
@@ -275,7 +312,7 @@ export function ThreadDetail({
   }
 
   return (
-    <SafeAreaView edges={["left", "right", "bottom"]} style={styles.panel}>
+    <SafeAreaView edges={["left", "right"]} style={styles.panel}>
       <View style={styles.topBar}>
         <Pressable onPress={onBack} style={styles.backButton}>
           <Text style={styles.backText}>‹</Text>
@@ -328,7 +365,7 @@ export function ThreadDetail({
       <FlashList
         ref={listRef}
         contentContainerStyle={styles.timeline}
-        data={listData}
+        data={visibleListData}
         drawDistance={900}
         keyExtractor={(item) => item.id}
         ItemSeparatorComponent={MessageSeparator}
@@ -350,9 +387,11 @@ export function ThreadDetail({
         }
         ListHeaderComponent={
           hasMoreMessages ? (
-            <Pressable onPress={onLoadMore} style={styles.loadMoreButton}>
-              <Text style={styles.loadMoreText}>{isLoadingMore ? "正在加载更早消息..." : "加载更早消息"}</Text>
-            </Pressable>
+            <View style={styles.loadMoreWrap}>
+              <Pressable onPress={onLoadMore} style={styles.loadMoreButton}>
+                <Text style={styles.loadMoreText}>{isLoadingMore ? "正在加载更早消息..." : "加载更早消息"}</Text>
+              </Pressable>
+            </View>
           ) : null
         }
         renderItem={renderMessage}
@@ -364,7 +403,15 @@ export function ThreadDetail({
           startRenderingFromBottom: true,
         }}
       />
-      <DiffModal fileChange={selectedFileChange} onClose={() => setSelectedFileChange(null)} workspacePath={workspacePath} />
+      <DiffModal
+        fileChange={selectedFileChange}
+        fileChanges={selectedFileChanges}
+        onClose={() => {
+          setSelectedFileChange(null);
+          setSelectedFileChanges(null);
+        }}
+        workspacePath={workspacePath}
+      />
       <CommandOutputModal entry={selectedCommandEntry} onClose={() => setSelectedCommandEntry(null)} />
       <ImagePreviewModal attachment={selectedAttachment} onClose={() => setSelectedAttachment(null)} />
       <ComposerToolsModal
@@ -407,6 +454,12 @@ export function ThreadDetail({
         visible={commandSheetVisible}
       />
 
+      {activeFileChangeEntry?.fileChanges?.length ? (
+        <ActiveFileChangeDock
+          fileChanges={activeFileChangeEntry.fileChanges}
+          onOpen={() => setSelectedFileChanges(activeFileChangeEntry.fileChanges ?? null)}
+        />
+      ) : null}
       <View style={styles.composerShell}>
         {selectedModelLabel || selectedPermissionMode || mentions.length ? (
           <View style={styles.composerMeta}>
@@ -460,6 +513,7 @@ export function ThreadDetail({
             multiline
             onChangeText={setMessage}
             placeholder={isDraft ? "输入第一条消息开始新会话" : isResponding ? "追加指令，或留空点取消" : "给当前会话发消息"}
+            placeholderTextColor="#526071"
             style={styles.input}
             value={message}
           />
@@ -483,6 +537,39 @@ export function ThreadDetail({
 
 function MessageSeparator() {
   return <View style={styles.messageSeparator} />;
+}
+
+function isActiveTimelineEntry(entry: TimelineEntry) {
+  return entry.streaming || (entry.variant === "command" && entry.commandStatus === "inProgress");
+}
+
+function ActiveFileChangeDock({ fileChanges, onOpen }: { fileChanges: TimelineFileChange[]; onOpen: () => void }) {
+  const totals = fileChanges.reduce(
+    (next, change) => ({
+      additions: next.additions + change.additions,
+      deletions: next.deletions + change.deletions,
+    }),
+    { additions: 0, deletions: 0 },
+  );
+
+  return (
+    <View style={styles.activeFileDockShell}>
+      <Pressable accessibilityLabel="查看本轮所有文件改动" onPress={onOpen} style={styles.activeFileDock}>
+        <View style={styles.activeFileDockTitleRow}>
+          <Ionicons color="#2454d6" name="git-compare-outline" size={17} />
+          <Text numberOfLines={1} style={styles.activeFileDockTitle}>
+            {fileChanges.length} 个文件已更改
+          </Text>
+        </View>
+        <Text style={styles.activeFileDockStats}>
+          <Text style={styles.activeFileDockStatsLabel}>总 diff </Text>
+          <Text style={styles.activeFileDockAdd}>+{totals.additions}</Text>
+          <Text> </Text>
+          <Text style={styles.activeFileDockDelete}>-{totals.deletions}</Text>
+        </Text>
+      </Pressable>
+    </View>
+  );
 }
 
 function ShellCommandModal({
@@ -510,6 +597,7 @@ function ShellCommandModal({
             multiline
             onChangeText={onChangeCommand}
             placeholder="例如 pnpm typecheck"
+            placeholderTextColor="#526071"
             style={styles.commandInput}
             value={command}
           />
@@ -694,10 +782,55 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 8,
   },
+  loadMoreWrap: {
+    marginBottom: 12,
+  },
   loadMoreText: {
     color: "#304052",
     fontSize: 12,
     fontWeight: "700",
+  },
+  activeFileDockShell: {
+    backgroundColor: "#eaf0f7",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  activeFileDock: {
+    alignItems: "center",
+    backgroundColor: "#ffffff",
+    borderColor: "#cfd7e3",
+    borderRadius: 10,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 10,
+    justifyContent: "space-between",
+    minHeight: 42,
+    paddingHorizontal: 12,
+  },
+  activeFileDockTitleRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    flexShrink: 1,
+    gap: 8,
+  },
+  activeFileDockTitle: {
+    color: "#304052",
+    flexShrink: 1,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  activeFileDockStats: {
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  activeFileDockStatsLabel: {
+    color: "#6b7788",
+  },
+  activeFileDockAdd: {
+    color: "#1d8f54",
+  },
+  activeFileDockDelete: {
+    color: "#d92d20",
   },
   composerShell: {
     backgroundColor: "#ffffff",
@@ -793,11 +926,14 @@ const styles = StyleSheet.create({
     borderColor: "#d8dee8",
     borderRadius: 18,
     borderWidth: 1,
+    color: "#182230",
     flex: 1,
+    fontSize: 15,
+    lineHeight: 20,
     maxHeight: 120,
     minHeight: 44,
     paddingHorizontal: 14,
-    paddingVertical: 11,
+    paddingVertical: 9,
     textAlignVertical: "top",
   },
   sendButton: {
@@ -847,6 +983,7 @@ const styles = StyleSheet.create({
     borderColor: "#d8dee8",
     borderRadius: 12,
     borderWidth: 1,
+    color: "#182230",
     minHeight: 88,
     paddingHorizontal: 12,
     paddingVertical: 10,

@@ -10,50 +10,89 @@ const DIFF_LINE_INCREMENT = 400;
 
 type Props = {
   fileChange: TimelineFileChange | null;
+  fileChanges?: TimelineFileChange[] | null;
   workspacePath: string;
   onClose: () => void;
 };
 
-export function DiffModal({ fileChange, workspacePath, onClose }: Props) {
+export function DiffModal({ fileChange, fileChanges = null, workspacePath, onClose }: Props) {
   const [lineLimit, setLineLimit] = useState(DIFF_INITIAL_LINE_LIMIT);
+  const allFileChanges = fileChanges?.length ? fileChanges : [];
+  const isAllDiffMode = allFileChanges.length > 0;
   const diffLines = useMemo(() => (fileChange?.diff ? fileChange.diff.split("\n") : ["暂无 diff"]), [fileChange?.diff]);
   const visibleLines = diffLines.slice(0, lineLimit);
+  const totals = allFileChanges.reduce(
+    (next, change) => ({
+      additions: next.additions + change.additions,
+      deletions: next.deletions + change.deletions,
+    }),
+    { additions: 0, deletions: 0 },
+  );
 
   useEffect(() => {
     setLineLimit(DIFF_INITIAL_LINE_LIMIT);
-  }, [fileChange?.path]);
+  }, [fileChange?.path, isAllDiffMode]);
 
   return (
-    <Modal animationType="slide" onRequestClose={onClose} transparent visible={Boolean(fileChange)}>
+    <Modal animationType="slide" onRequestClose={onClose} transparent visible={Boolean(fileChange || isAllDiffMode)}>
       <View style={styles.modalBackdrop}>
         <View style={styles.diffSheet}>
           <View style={styles.diffSheetHandle} />
           <View style={styles.diffHeader}>
             <View style={styles.diffHeaderCopy}>
               <Text numberOfLines={1} style={styles.diffTitle}>
-                {fileChange ? formatWorkspaceRelativePath(fileChange.path, workspacePath) : ""}
+                {isAllDiffMode ? `已编辑 ${allFileChanges.length} 个文件` : fileChange ? formatWorkspaceRelativePath(fileChange.path, workspacePath) : ""}
               </Text>
-              {fileChange ? <DiffSubtitle fileChange={fileChange} /> : null}
+              {isAllDiffMode ? (
+                <Text style={styles.diffSubtitle}>
+                  <Text style={styles.diffAdd}>+{totals.additions}</Text>
+                  <Text> </Text>
+                  <Text style={styles.diffDelete}>-{totals.deletions}</Text>
+                </Text>
+              ) : fileChange ? (
+                <DiffSubtitle fileChange={fileChange} />
+              ) : null}
             </View>
             <Pressable onPress={onClose} style={styles.diffCloseButton}>
               <Text style={styles.diffCloseText}>关闭</Text>
             </Pressable>
           </View>
-          <ScrollView horizontal style={styles.diffHorizontal}>
-            <ScrollView contentContainerStyle={styles.diffContent}>
-              {visibleLines.map((line, index) => (
-                <View key={`${index}:${line.slice(0, 16)}`} style={[styles.diffLine, getDiffLineStyle(line)]}>
-                  <Text style={styles.diffLineNumber}>{index + 1}</Text>
-                  <Text style={[styles.diffLineText, getDiffTextStyle(line)]}>{line || " "}</Text>
+          {isAllDiffMode ? (
+            <ScrollView contentContainerStyle={styles.allDiffContent}>
+              {allFileChanges.map((change, fileIndex) => (
+                <View key={`${change.path}:${fileIndex}`} style={styles.fileDiffSection}>
+                  <Text numberOfLines={2} style={styles.fileDiffTitle}>
+                    {formatWorkspaceRelativePath(change.path, workspacePath)}
+                  </Text>
+                  <DiffSubtitle fileChange={change} />
+                  <View style={styles.fileDiffLines}>
+                    {(change.diff ? change.diff.split("\n") : ["暂无 diff"]).map((line, index) => (
+                      <View key={`${index}:${line.slice(0, 16)}`} style={[styles.diffLine, getDiffLineStyle(line)]}>
+                        <Text style={styles.diffLineNumber}>{index + 1}</Text>
+                        <Text style={[styles.allDiffLineText, getDiffTextStyle(line)]}>{line || " "}</Text>
+                      </View>
+                    ))}
+                  </View>
                 </View>
               ))}
-              {lineLimit < diffLines.length ? (
-                <Pressable onPress={() => setLineLimit((current) => current + DIFF_LINE_INCREMENT)} style={styles.diffLoadMore}>
-                  <Text style={styles.diffLoadMoreText}>继续加载 {diffLines.length - lineLimit} 行</Text>
-                </Pressable>
-              ) : null}
             </ScrollView>
-          </ScrollView>
+          ) : (
+            <ScrollView horizontal style={styles.diffHorizontal}>
+              <ScrollView contentContainerStyle={styles.diffContent}>
+                {visibleLines.map((line, index) => (
+                  <View key={`${index}:${line.slice(0, 16)}`} style={[styles.diffLine, getDiffLineStyle(line)]}>
+                    <Text style={styles.diffLineNumber}>{index + 1}</Text>
+                    <Text style={[styles.diffLineText, getDiffTextStyle(line)]}>{line || " "}</Text>
+                  </View>
+                ))}
+                {lineLimit < diffLines.length ? (
+                  <Pressable onPress={() => setLineLimit((current) => current + DIFF_LINE_INCREMENT)} style={styles.diffLoadMore}>
+                    <Text style={styles.diffLoadMoreText}>继续加载 {diffLines.length - lineLimit} 行</Text>
+                  </Pressable>
+                ) : null}
+              </ScrollView>
+            </ScrollView>
+          )}
         </View>
       </View>
     </Modal>
@@ -211,6 +250,28 @@ const styles = StyleSheet.create({
     paddingBottom: 22,
     paddingVertical: 10,
   },
+  allDiffContent: {
+    padding: 12,
+    paddingBottom: 26,
+  },
+  fileDiffSection: {
+    backgroundColor: "#171a1e",
+    borderColor: "#2e3338",
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 12,
+    overflow: "hidden",
+    paddingTop: 10,
+  },
+  fileDiffTitle: {
+    color: "#f2f4f7",
+    fontSize: 13,
+    fontWeight: "900",
+    paddingHorizontal: 12,
+  },
+  fileDiffLines: {
+    marginTop: 10,
+  },
   diffLine: {
     flexDirection: "row",
     minHeight: 20,
@@ -236,6 +297,13 @@ const styles = StyleSheet.create({
   diffLineText: {
     color: "#c9d1d9",
     flexShrink: 0,
+    fontFamily: "Menlo",
+    fontSize: 11,
+    lineHeight: 18,
+  },
+  allDiffLineText: {
+    color: "#c9d1d9",
+    flex: 1,
     fontFamily: "Menlo",
     fontSize: 11,
     lineHeight: 18,

@@ -42,7 +42,8 @@ export function prepareThreadDetailTimeline(entries: TimelineEntry[], options: O
 export const groupCompletedTurnFileChanges = prepareThreadDetailTimeline;
 
 function groupToolEntriesInTurn(entries: TimelineEntry[], options: Options) {
-  return groupCommandExecutionsInTurn(groupFileChangesInTurn(entries, options), options);
+  const groupedTools = groupWebSearchEntriesInTurn(groupCommandExecutionsInTurn(groupFileChangesInTurn(entries, options), options), options);
+  return groupCompletedTurnProcessEntries(groupedTools, options);
 }
 
 function groupFileChangesInTurn(entries: TimelineEntry[], options: Options) {
@@ -54,20 +55,33 @@ function groupFileChangesInTurn(entries: TimelineEntry[], options: Options) {
   }
 
   const anchorIndex = findFinalAssistantIndex(entries);
-  if (anchorIndex === -1) {
-    return entries.filter((entry) => !entry.fileChanges?.length);
+  const insertIndex = anchorIndex === -1 ? entries.length - 1 : anchorIndex;
+
+  if (insertIndex === -1) {
+    return entries;
+  }
+
+  const anchorEntry = entries[insertIndex];
+  if (!anchorEntry) {
+    return entries;
   }
 
   const mergedFileChanges = mergeFileChangesByPath(fileEntries.flatMap((entry) => entry.fileChanges ?? []));
-  const syntheticEntry = createMergedFileChangeEntry(entries[anchorIndex], fileEntries, mergedFileChanges);
+  const syntheticEntry = createMergedFileChangeEntry(anchorEntry, fileEntries, mergedFileChanges);
+  const fileEntryIds = new Set(fileEntries.map((entry) => entry.id));
+
+  if (anchorIndex === -1) {
+    return [...entries.filter((entry) => !fileEntryIds.has(entry.id)), syntheticEntry];
+  }
+
   const output: TimelineEntry[] = [];
 
   entries.forEach((entry, index) => {
-    if (!entry.fileChanges?.length) {
+    if (!fileEntryIds.has(entry.id)) {
       output.push(entry);
     }
 
-    if (index === anchorIndex) {
+    if (anchorIndex !== -1 && index === insertIndex) {
       output.push(syntheticEntry);
     }
   });
@@ -84,19 +98,33 @@ function groupCommandExecutionsInTurn(entries: TimelineEntry[], options: Options
   }
 
   const anchorIndex = findFinalAssistantIndex(entries);
-  if (anchorIndex === -1) {
+  const fallbackAnchorIndex = entries.findIndex((entry) => entry.variant === "command");
+  const insertIndex = anchorIndex === -1 ? fallbackAnchorIndex : anchorIndex;
+
+  if (insertIndex === -1) {
     return entries;
   }
 
-  const syntheticEntry = createMergedCommandEntry(entries[anchorIndex], commandEntries);
+  const anchorEntry = entries[insertIndex];
+  if (!anchorEntry) {
+    return entries;
+  }
+
+  const syntheticEntry = createMergedCommandEntry(anchorEntry, commandEntries);
+  const commandEntryIds = new Set(commandEntries.map((entry) => entry.id));
   const output: TimelineEntry[] = [];
 
   entries.forEach((entry, index) => {
-    if (entry.variant !== "command") {
+    if (anchorIndex === -1 && index === insertIndex) {
+      output.push(syntheticEntry);
+      return;
+    }
+
+    if (!commandEntryIds.has(entry.id)) {
       output.push(entry);
     }
 
-    if (index === anchorIndex) {
+    if (anchorIndex !== -1 && index === insertIndex) {
       output.push(syntheticEntry);
     }
   });
@@ -104,10 +132,114 @@ function groupCommandExecutionsInTurn(entries: TimelineEntry[], options: Options
   return output;
 }
 
+function groupWebSearchEntriesInTurn(entries: TimelineEntry[], options: Options) {
+  const searchEntries = entries.filter((entry) => entry.webSearchActions?.length);
+  const shouldPreserve = hasPreservedEntry(searchEntries, options);
+
+  if (searchEntries.length === 0 || shouldPreserve || searchEntries.some((entry) => entry.streaming)) {
+    return entries;
+  }
+
+  const anchorIndex = entries.findIndex((entry) => entry.webSearchActions?.length);
+  const anchorEntry = entries[anchorIndex];
+  if (!anchorEntry) {
+    return entries;
+  }
+
+  const syntheticEntry = createMergedWebSearchEntry(anchorEntry, searchEntries);
+  const output: TimelineEntry[] = [];
+
+  entries.forEach((entry, index) => {
+    if (index === anchorIndex) {
+      output.push(syntheticEntry);
+      return;
+    }
+
+    if (!entry.webSearchActions?.length) {
+      output.push(entry);
+    }
+  });
+
+  return output;
+}
+
+function groupCompletedTurnProcessEntries(entries: TimelineEntry[], options: Options) {
+  const finalAssistantIndex = findFinalAssistantIndex(entries);
+  const anchorIndex = finalAssistantIndex === -1 ? findStreamingAssistantIndex(entries) : finalAssistantIndex;
+
+  if (anchorIndex === -1) {
+    return entries;
+  }
+
+  const processEntries = entries.filter((entry, index) => index !== anchorIndex && isCollapsibleProcessEntry(entry, options));
+
+  if (processEntries.length === 0) {
+    return entries;
+  }
+
+  const anchorEntry = entries[anchorIndex];
+  if (!anchorEntry) {
+    return entries;
+  }
+
+  const syntheticEntry = createTurnProcessEntry(anchorEntry, processEntries);
+  const processEntryIds = new Set(processEntries.map((entry) => entry.id));
+  const output: TimelineEntry[] = [];
+  let insertedProcessGroup = false;
+
+  entries.forEach((entry, index) => {
+    if (index === anchorIndex && !insertedProcessGroup) {
+      output.push(syntheticEntry);
+      insertedProcessGroup = true;
+    }
+
+    if (!processEntryIds.has(entry.id)) {
+      output.push(entry);
+    }
+  });
+
+  return output;
+}
+
+function isCollapsibleProcessEntry(entry: TimelineEntry, options: Options) {
+  if (entry.role === "user") {
+    return false;
+  }
+
+  if (entry.fileChanges?.length) {
+    return false;
+  }
+
+  if (hasPreservedEntry([entry], options)) {
+    return false;
+  }
+
+  if (entry.pending || entry.failed || entry.streaming) {
+    return false;
+  }
+
+  if (entry.variant === "command" && entry.commandStatus === "inProgress") {
+    return false;
+  }
+
+  return entry.role === "assistant" || entry.role === "tool" || entry.role === "system";
+}
+
 function findFinalAssistantIndex(entries: TimelineEntry[]) {
   for (let index = entries.length - 1; index >= 0; index -= 1) {
     const entry = entries[index];
     if (entry?.role === "assistant" && entry.title === "Codex" && !entry.streaming) {
+      return index;
+    }
+  }
+
+  return -1;
+}
+
+function findStreamingAssistantIndex(entries: TimelineEntry[]) {
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const entry = entries[index];
+    if (entry?.role === "assistant" && entry.title === "Codex" && entry.streaming) {
       return index;
     }
   }
@@ -133,6 +265,7 @@ function createMergedFileChangeEntry(anchorEntry: TimelineEntry, fileEntries: Ti
     timestampMs: firstFileEntry?.timestampMs ?? anchorEntry.timestampMs,
     body: `已编辑 ${fileChanges.length} 个文件${totals.additions || totals.deletions ? `  +${totals.additions} -${totals.deletions}` : ""}`,
     fileChanges,
+    streaming: fileEntries.some((entry) => entry.streaming),
   };
 }
 
@@ -173,6 +306,37 @@ function createMergedCommandEntry(anchorEntry: TimelineEntry, commandEntries: Ti
     timestampMs: commandEntries[0]?.timestampMs ?? anchorEntry.timestampMs,
     body: title,
     commandEntries,
+  };
+}
+
+function createMergedWebSearchEntry(anchorEntry: TimelineEntry, searchEntries: TimelineEntry[]): TimelineEntry {
+  const actions = searchEntries.flatMap((entry) => entry.webSearchActions ?? []);
+  const title = `已搜索网页 ${actions.length} 次`;
+
+  return {
+    id: `${anchorEntry.turnId}:webSearch:summary`,
+    turnId: anchorEntry.turnId,
+    role: "tool",
+    variant: "webSearchGroup",
+    title,
+    timestampMs: searchEntries[0]?.timestampMs ?? anchorEntry.timestampMs,
+    body: actions.map((action) => action.detail).join("\n"),
+    webSearchActions: actions,
+  };
+}
+
+function createTurnProcessEntry(finalAssistant: TimelineEntry, processEntries: TimelineEntry[]): TimelineEntry {
+  const title = "已处理";
+
+  return {
+    id: `${finalAssistant.turnId}:process:summary`,
+    turnId: finalAssistant.turnId,
+    role: "tool",
+    variant: "turnProcessGroup",
+    title,
+    timestampMs: processEntries[0]?.timestampMs ?? finalAssistant.timestampMs,
+    body: title,
+    processEntries,
   };
 }
 

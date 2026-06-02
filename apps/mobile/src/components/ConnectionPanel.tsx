@@ -267,13 +267,14 @@ function ConnectionQrScannerModal({ visible, onClose, onScanned }: ConnectionQrS
               <Text style={styles.scannerCloseText}>关闭</Text>
             </Pressable>
           </View>
-          <CameraView
-            barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
-            onBarcodeScanned={onScanned}
-            style={styles.camera}
-          >
+          <View style={styles.cameraWrap}>
+            <CameraView
+              barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
+              onBarcodeScanned={onScanned}
+              style={styles.camera}
+            />
             <View style={styles.scanFrame} />
-          </CameraView>
+          </View>
         </View>
       </View>
     </Modal>
@@ -478,17 +479,23 @@ const styles = StyleSheet.create({
     fontWeight: "900",
   },
   camera: {
+    flex: 1,
+  },
+  cameraWrap: {
     height: 360,
     marginHorizontal: 14,
     overflow: "hidden",
   },
   scanFrame: {
-    alignSelf: "center",
     borderColor: "#ffffff",
     borderRadius: 18,
     borderWidth: 3,
     height: 220,
-    marginTop: 70,
+    left: "50%",
+    marginLeft: -110,
+    marginTop: -110,
+    position: "absolute",
+    top: "50%",
     width: 220,
   },
 });

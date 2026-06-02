@@ -48,6 +48,7 @@ import type { DeltaBuffer, LiveEvent, NormalizedConnection, PendingEntry, Picker
 const DETAIL_REFRESH_INTERVAL_MS = 3000;
 const RECONNECT_BASE_DELAY_MS = 1000;
 const RECONNECT_MAX_DELAY_MS = 10000;
+const MAX_LOAD_MORE_PAGE_ATTEMPTS = 3;
 
 export type CodexAppServerState = ReturnType<typeof useCodexAppServer>;
 
@@ -90,6 +91,7 @@ export function useCodexAppServer() {
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttemptRef = useRef(0);
   const selectedThreadIdRef = useRef<string | null>(null);
+  const isLoadingMoreRef = useRef(false);
   const deltaBufferRef = useRef<DeltaBuffer>({
     timer: null,
     chunks: new Map(),
@@ -351,24 +353,45 @@ export function useCodexAppServer() {
   };
 
   const loadOlderMessages = async () => {
-    if (!selectedThread || !olderTurnsCursor || isLoadingMore) {
+    if (!selectedThread || !olderTurnsCursor || isLoadingMoreRef.current) {
       return;
     }
 
     const threadId = selectedThread.id;
+    isLoadingMoreRef.current = true;
     setIsLoadingMore(true);
     try {
-      const page = await loadTurnPage(client, threadId, olderTurnsCursor);
+      const page = await loadOlderVisibleTurnPage(threadId, olderTurnsCursor);
       if (selectedThreadIdRef.current !== threadId) {
         return;
       }
-      setTimeline((current) => [...flattenTurns(page.turns), ...current]);
+      const pageTimeline = flattenTurns(page.turns);
+      setTimeline((current) => [...pageTimeline, ...current]);
       setOlderTurnsCursor(page.nextCursor);
     } finally {
       if (selectedThreadIdRef.current === threadId) {
         setIsLoadingMore(false);
       }
+      isLoadingMoreRef.current = false;
     }
+  };
+
+  const loadOlderVisibleTurnPage = async (threadId: string, cursor: string) => {
+    let nextCursor: string | null = cursor;
+    const turns: Awaited<ReturnType<typeof loadTurnPage>>["turns"] = [];
+
+    for (let attempt = 0; attempt < MAX_LOAD_MORE_PAGE_ATTEMPTS && nextCursor; attempt += 1) {
+      const page = await loadTurnPage(client, threadId, nextCursor);
+      turns.push(...page.turns);
+      nextCursor = page.nextCursor;
+
+      // app-server 按 turn 分页；有些历史 turn 展示后可能没有可见消息。一次点击尽量翻到有内容的页。
+      if (flattenTurns(turns).length > 0 || !nextCursor) {
+        break;
+      }
+    }
+
+    return { turns, nextCursor };
   };
 
   const sendMessage = async (text: string, mentions: ComposerMention[] = [], images: ComposerImageAttachment[] = []) => {
@@ -384,6 +407,7 @@ export function useCodexAppServer() {
 
     try {
       const resumedThread = await sendMessageToThread(sourceThread, trimmed, mentions, images);
+      markPendingMessageSent(pendingId);
       if (selectedThreadIdRef.current === sourceThread.id) {
         setSelectedThread(resumedThread);
       }
@@ -391,9 +415,7 @@ export function useCodexAppServer() {
       const message = compactRpcError(error);
       setRecentError(`send failed: ${message}`);
       setLogs((current) => [`send failed: ${message}`, ...current].slice(0, 30));
-      setPendingEntries((current) =>
-        current.map((entry) => (entry.id === pendingId ? { ...entry, pending: false, failed: true, title: "发送失败" } : entry)),
-      );
+      markPendingMessageFailed(pendingId);
     }
   };
 
@@ -467,6 +489,17 @@ export function useCodexAppServer() {
     return pendingId;
   };
 
+  const markPendingMessageSent = (pendingId: string) => {
+    // turn/steer 成功后 app-server 不一定回显 user item；不能只靠服务端回显来结束“发送中”状态。
+    setPendingEntries((current) => current.map((entry) => (entry.id === pendingId ? { ...entry, pending: false } : entry)));
+  };
+
+  const markPendingMessageFailed = (pendingId: string) => {
+    setPendingEntries((current) =>
+      current.map((entry) => (entry.id === pendingId ? { ...entry, pending: false, failed: true, title: "发送失败" } : entry)),
+    );
+  };
+
   const createThread = async (cwd: string | null, message: string, mentions: ComposerMention[] = [], images: ComposerImageAttachment[] = []) => {
     const trimmedCwd = cwd?.trim() || null;
     const trimmedMessage = message.trim();
@@ -477,6 +510,7 @@ export function useCodexAppServer() {
 
     setIsCreatingThread(true);
     setRecentError(null);
+    let pendingId: string | null = null;
 
     try {
       const permissionMode = getPermissionMode(selectedPermissionModeId);
@@ -493,14 +527,18 @@ export function useCodexAppServer() {
       setSelectedThread(result.thread);
       setTimeline([]);
       setOlderTurnsCursor(null);
-      addPendingMessage(result.thread.id, buildPendingMessageBody(trimmedMessage, images), 0, images, trimmedMessage);
+      pendingId = addPendingMessage(result.thread.id, buildPendingMessageBody(trimmedMessage, images), 0, images, trimmedMessage);
 
       await sendMessageToThread(result.thread, trimmedMessage, mentions, images);
+      markPendingMessageSent(pendingId);
       await openThread(result.thread);
     } catch (error) {
       const messageText = compactRpcError(error);
       setRecentError(`create failed: ${messageText}`);
       setLogs((current) => [`create failed: ${messageText}`, ...current].slice(0, 30));
+      if (pendingId) {
+        markPendingMessageFailed(pendingId);
+      }
     } finally {
       setIsCreatingThread(false);
     }

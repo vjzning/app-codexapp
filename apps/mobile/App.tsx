@@ -46,7 +46,11 @@ export default function App() {
         <SafeAreaView edges={["top", "bottom"]} style={styles.safeArea}>
           <StatusBar style="dark" />
           {/* 详情页底部输入框贴近屏幕底部，键盘出现时需要由 RN 层主动让出空间。 */}
-          <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.detailScreen}>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : "height"}
+            keyboardVerticalOffset={Platform.OS === "ios" ? -12 : 0}
+            style={styles.detailScreen}
+          >
             <ThreadDetail
               approval={codex.approval}
               userInputRequest={codex.userInputRequest}
